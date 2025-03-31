@@ -5,11 +5,11 @@ import tempfile
 import uuid
 
 from convert_pdf import convert_pdf_to_markdown
+from summarize_md import summarize
 
 app = Flask(__name__)
-CORS(app)  # This allows your frontend to call this API
+CORS(app)  #  allows your frontend to call this API
 
-# Create a directory to store conversions
 CONVERSIONS_DIR = os.path.join(os.path.dirname(__file__), "conversions")
 os.makedirs(CONVERSIONS_DIR, exist_ok=True)
 
@@ -36,6 +36,8 @@ def process_pdf():
         temp_filename = f"{uuid.uuid4().hex}_{file.filename}"
         file_path = os.path.join(temp_dir, temp_filename)
         file.save(file_path)
+
+        #TODO: check if a file with the same name is already stored as markdown. OR remove the markdown when complete. 
         
         try:
             # Create a unique output directory for this conversion
@@ -55,30 +57,12 @@ def process_pdf():
             with open(markdown_path, 'r', encoding='utf-8') as f:
                 markdown_content = f.read()
             
-            # Create a simple placeholder summary
-            # First, try to extract a title from the markdown
-            lines = markdown_content.split('\n')
-            title = "Untitled Document"
-            for line in lines:
-                if line.startswith('# '):
-                    title = line[2:].strip()
-                    break
-            
-            # Create a basic summary with word count and section count
-            section_count = sum(1 for line in lines if line.startswith('# ') or line.startswith('## '))
-            word_count = len(markdown_content.split())
-            
-            summary = f"# Summary of {os.path.basename(file.filename)}\n\n"
-            summary += f"## Document: {title}\n\n"
-            summary += f"This document contains approximately {word_count} words "
-            summary += f"organized across {section_count} major sections.\n\n"
-            summary += "## Key Points\n\n"
-            summary += "- The document has been successfully converted to markdown format\n"
-            summary += "- You can ask questions about the content in the discussion tab\n"
-            summary += "- A more detailed summary will be available when summarization is implemented\n"
+            # Summarize the markdown
+            summary = summarize(markdown_content)
             
             # Clean up the temporary file
-            os.remove(file_path)
+            if os.path.exists(file_path):
+                os.remove(file_path)
             
             return jsonify({
                 'success': True,
@@ -99,7 +83,7 @@ def process_pdf():
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """
-    Endpoint to handle chat interactions about the paper
+    Endpoint to handle chat interactions
     """
     try:
         data = request.json

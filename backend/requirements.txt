@@ -11,3 +11,4 @@ torch
 #kokoro
 #soundfile
 #accelerate
+openai
