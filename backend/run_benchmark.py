@@ -69,4 +69,4 @@ if __name__ == "__main__":
             break
         total_benchmarks = total_benchmarks + 1
         sim_sum = sim_sum + run_benchmark(row)
-    print("Average Performance:", sim_sum/total_benchmarks)
+    print("Average Similarity:", sim_sum/total_benchmarks)
