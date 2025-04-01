@@ -32,6 +32,7 @@ def summarize(document_content):
     )
     return response.choices[0].message.content
 
+
 if __name__ == "__main__":
     # take input from the command line
     import sys

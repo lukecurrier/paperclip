@@ -11,13 +11,13 @@ load_dotenv()
 bert_model = AutoModel.from_pretrained("bert-base-uncased")
 bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
     
-def run_benchmark(benchmark):
+def run_benchmark(benchmark, text_key, summary_key):
     #print("Running benchmark: ", benchmark)
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("BASE_URL")
     
-    if hasattr(torch.backends, 'mps'):
-        print(f"MPS available: {torch.backends.mps.is_available()}")
+    #if hasattr(torch.backends, 'mps'):
+        #print(f"MPS available: {torch.backends.mps.is_available()}")
     
     client = OpenAI(api_key=api_key, base_url=base_url)
 
@@ -25,7 +25,7 @@ def run_benchmark(benchmark):
     
     USER_PROMPT = f"""Please briefly summarize the following markdown content:
     
-    {benchmark['text']}
+    {benchmark[text_key]}
 
     Summary:"""
     
@@ -39,14 +39,9 @@ def run_benchmark(benchmark):
         max_tokens=300
     )    
     resp_content = response.choices[0].message.content
-    tokenized_resp = bert_tokenizer.tokenize(resp_content)
-    tokenized_benchmark = bert_tokenizer.tokenize(benchmark['summary'])
-    
-    #print(resp_content)
-    #print(benchmark['summary'])
     
     input_ids1 = torch.tensor(bert_tokenizer.encode(resp_content, truncation=True, max_length=512)).unsqueeze(0)
-    input_ids2 = torch.tensor(bert_tokenizer.encode(benchmark['summary'], truncation=True, max_length=512)).unsqueeze(0)
+    input_ids2 = torch.tensor(bert_tokenizer.encode(benchmark[summary_key], truncation=True, max_length=512)).unsqueeze(0)
 
     # Obtain the BERT embeddings
     with torch.no_grad():
@@ -56,17 +51,21 @@ def run_benchmark(benchmark):
         embeddings2 = outputs2.last_hidden_state[:, 0, :]
 
     similarity_score = cosine_similarity(embeddings1, embeddings2)
-    print("Similarity Score:", similarity_score)
+    #print("Similarity Score:", similarity_score)
     return similarity_score
 
-
-if __name__ == "__main__":
+def read_and_run_specific_benchmark(csv_file, text_key, summary_key):
     total_benchmarks = 0
     sim_sum = 0
-    reader = csv.DictReader(open('scisumm.csv', encoding='utf-8'))
+    reader = csv.DictReader(open(csv_file, encoding='utf-8'))
     for i, row in enumerate(reader):
-        if i >= 20:
+        if i >= 50:
             break
         total_benchmarks = total_benchmarks + 1
-        sim_sum = sim_sum + run_benchmark(row)
-    print("Average Similarity:", sim_sum/total_benchmarks)
+        sim_sum = sim_sum + run_benchmark(row, text_key, summary_key)
+    print(f"Average Similarity for {csv_file} Benchmark:", sim_sum/total_benchmarks)
+    
+
+if __name__ == "__main__":
+    read_and_run_specific_benchmark('scisumm.csv', 'text', 'summary')
+    read_and_run_specific_benchmark("usb.csv", 'input_lines', 'output_lines')
