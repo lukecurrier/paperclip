@@ -6,13 +6,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModel
 import csv
 
+load_dotenv()
 
-bert_model = AutoModel.from_pretrained("answerdotai/ModernBERT-base")
-bert_tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-base")
-
+bert_model = AutoModel.from_pretrained("bert-base-uncased")
+bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+    
 def run_benchmark(benchmark):
     #print("Running benchmark: ", benchmark)
-    load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("BASE_URL")
     
