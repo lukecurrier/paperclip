@@ -1,0 +1,1217 @@
+text,summary
+"# Dynamic Backtracking
+
+Matthew L. Ginsberg ginsberg@cs.uoregon.edu
+
+CIRL, University of Oregon, Eugene, OR 97403-1269 USA
+
+# Abstract
+
+Because of their occasional need to return to shallow points in a search tree, existing backtracking methods can sometimes erase meaningful progress toward solving a search problem. In this paper, we present a method by which backtrack points can be moved deeper in the search space, thereby avoiding this diculty. The technique developed is a variant of dependency-directed backtracking that uses only polynomial space while still providing useful control information and retaining the completeness guarantees provided by earlier approaches.
+
+# 1. Introduction
+
+Imagine that you are trying to solve some constraint-satisfaction problem, or csp. In the interests of deniteness, I will suppose that the csp in question involves coloring a map of the United States sub ject to the restriction that adjacent states be colored dierently.
+
+Imagine we begin by coloring the states along the Mississippi, thereby splitting the remaining problem in two. We now begin to color the states in the western half of the country, coloring perhaps half a dozen of them before deciding that we are likely to be able to color the rest. Suppose also that the last state colored was Arizona.
+
+At this point, we change our focus to the eastern half of the country. After all, if we can't color the eastern half because of our coloring choices for the states along the Mississippi, there is no point in wasting time completing the coloring of the western states.
+
+We successfully color the eastern states and then return to the west. Unfortunately, we color New Mexico and Utah and then get stuck, unable to color (say) Nevada. What's more, backtracking doesn't help, at least in the sense that changing the colors for New Mexico and Utah alone does not allow us to proceed farther. Depth-rst search would now have us backtrack to the eastern states, trying a new color for (say) New York in the vain hope that this would solve our problems out West.
+
+This is obviously pointless; the blockade along the Mississippi makes it impossible for New York to have any impact on our attempt to color Nevada or other western states. What's more, we are likely to examine every possible coloring of the eastern states before addressing the problem that is actually the source of our diculties.
+
+The solutions that have been proposed to this involve nding ways to backtrack directly to some state that might actually allow us to make progress, in this case Arizona or earlier. Dependency-directed backtracking (Stallman & Sussman, 1977) involves a direct backtrack to the source of the diculty; backjumping (Gaschnig, 1979) avoids the computational overhead of this technique by using syntactic methods to estimate the point to which backtrack is necessary.
+
+In both cases, however, note that although we backtrack to the source of the problem, we backtrack over our successful solution to half of the original problem, discarding our solution to the problem of coloring the states in the East. And once again, the problem is worse than this { after we recolor Arizona, we are in danger of solving the East yet again before realizing that our new choice for Arizona needs to be changed after all. We won't examine every possible coloring of the eastern states, but we are in danger of rediscovering our successful coloring an exponential number of times.
+
+This hardly seems sensible; a human problem solver working on this problem would simply ignore the East if possible, returning directly to Arizona and proceeding. Only if the states along the Mississippi needed new colors would the East be reconsidered { and even then only if no new coloring could be found for the Mississippi that was consistent with the eastern solution.
+
+In this paper we formalize this technique, presenting a modication to conventional search techniques that is capable of backtracking not only to the most recently expanded node, but also directly to a node elsewhere in the search tree. Because of the dynamic way in which the search is structured, we refer to this technique as dynamic backtracking.
+
+A more specic outline is as follows: We begin in the next section by introducing a variety of notational conventions that allow us to cast both existing work and our new ideas in a uniform computational setting. Section 3 discusses backjumping, an intermediate between simple chronological backtracking and our ideas, which are themselves presented in Section 4. An example of the dynamic backtracking algorithm in use appears in Section 5 and an experimental analysis of the technique in Section 6. A summary of our results and suggestions for future work are in Section 7. All proofs have been deferred to an appendix in the interests of continuity of exposition.
+
+### 2. Preliminaries
+
+Denition 2.1 By a constraint satisfaction problem (I ; V ; ) we will mean a set I of variables; for each i <sup>2</sup> I , there is a set Vi of possible values for the variable i. is a set of constraints, each a pair (J; P ) where J = (j1; . . . ; jk) is an ordered subset of I and P is a subset of Vj1 - - Vjk .
+
+<sup>A</sup> solution to the csp is a set vi of values for each of the variables in I such that vi <sup>2</sup> Vi for each i and for every constraint (J; P ) of the above form in , (vj1 ; . . . ; vjk ) <sup>2</sup> P .
+
+In the example of the introduction, I is the set of states and Vi is the set of possible colors for the state i. For each constraint, the rst part of the constraint is a pair of adjacent states and the second part is a set of allowable color combinations for these states.
+
+Our basic plan in this paper is to present formal versions of the search algorithms described in the introduction, beginning with simple depth-rst search and proceeding to backjumping and dynamic backtracking. As a start, we make the following denition of a partial solution to a csp:
+
+Denition 2.2 Let (I ; V ; ) be a csp. By a partial solution to the csp we mean an ordered subset J I and an assignment of a value to each variable in J.
+
+We will denote a partial solution by a tuple of ordered pairs, where each ordered pair (i; v) assigns the value <sup>v</sup> to the variable i. For a partial solution P , we will denote by P the set of variables assigned values by P .
+
+Constraint-satisfaction problems are solved in practice by taking partial solutions and extending them by assigning values to new variables. In general, of course, not any value can be assigned to a variable because some are inconsistent with the constraints. We therefore make the following denition:
+
+Denition 2.3 Given a partial solution P to a csp, an eliminating explanation for a variable i is a pair (v; S) where <sup>v</sup> <sup>2</sup> Vi and S P . The intended meaning is that i cannot take the value <sup>v</sup> because of the values already assigned by P to the variables in S. An elimination mechanism for a csp is a function that accepts as arguments a partial solution P , and a variable i <sup>62</sup> P . The function returns a (possibly empty) set (P; i) of eliminating explanations for i.
+
+For a set E of eliminating explanations, we will denote by Eb the values that have been identied as eliminated, ignoring the reasons given. We therefore denote by b(P; i) the set of values eliminated by elements of (P; i).
+
+Note that the above denition is somewhat 
+exible with regard to the amount of work done by the elimination mechanism { all values that violate completed constraints might be eliminated, or some amount of lookahead might be done. We will, however, make the following assumptions about all elimination mechanisms:
+
+- 1. They are correct. For a partial solution P , if the value vi <sup>62</sup> b(P; i), then every constraint (S; T ) in with S P [ fig is satised by the values in the partial solution and the value vi for i. These are the constraints that are complete after the value vi is assigned to i.
+- 2. They are complete. Suppose that P is a partial solution to a csp, and there is some solution that extends P while assigning the value <sup>v</sup> to i. If P <sup>0</sup> is an extension of P with (v; E) <sup>2</sup> (P <sup>0</sup> ; i), then
+
+$$E \cap (\overline{P} - \overline{P}) \neq \emptyset \tag{1}$$
+
+In other words, whenever P can be successfully extended after assigning <sup>v</sup> to i but P <sup>0</sup> cannot be, at least one element of P <sup>0</sup> P is identied as a possible reason for the problem.
+
+3. They are concise. For a partial solution P , variable i and eliminated value v, there is at most a single element of the form (v; E) <sup>2</sup> (P; i). Only one reason is given why the variable i cannot have the value v.
+
+Lemma 2.4 Let be a complete elimination mechanism for a csp, let P be a partial solution to this csp and let i <sup>62</sup> P . Now if P can be successfully extended to a complete solution after assigning i the value v, then <sup>v</sup> <sup>62</sup> b(P; i).
+
+I apologize for the swarm of denitions, but they allow us to give a clean description of depth-rst search:
+
+Algorithm 2.5 (Depth-rst search) Given as inputs a constraint-satisfaction problem and an elimination mechanism :
+
+- 1. Set P = . P is a partial solution to the csp. Set Ei <sup>=</sup> for each i <sup>2</sup> I ; Ei is the set of values that have been eliminated for the variable i.
+- 2. If P = I , so that P assigns a value to every element in I , it is a solution to the original problem. Return it. Otherwise, select a variable i <sup>2</sup> I P . Set Ei <sup>=</sup> b(P; i), the values that have been eliminated as possible choices for i.
+- 3. Set S <sup>=</sup> Vi Ei, the set of remaining possibilities for i. If S is nonempty, choose an element <sup>v</sup> <sup>2</sup> S. Add (i; v) to P , thereby setting i's value to v, and return to step 2.
+- 4. If S is empty, let (j; vj) be the last entry in P ; if there is no such entry, return failure. Remove (j; vj) from P , add vj to Ej , set i <sup>=</sup> j and return to step 3.
+
+We have written the algorithm so that it returns a single answer to the csp; the modi cation to accumulate all such answers is straightforward.
+
+The problem with Algorithm 2.5 is that it looks very little like conventional depth-rst search, since instead of recording the unexpanded children of any particular node, we are keeping track of the failed siblings of that node. But we have the following:
+
+Lemma 2.6 At any point in the execution of Algorithm 2.5, if the last element of the partial solution P assigns a value to the variable i, then the unexplored siblings of the current node are those that assign to i the values in Vi Ei.
+
+Proposition 2.7 Algorithm 2.5 is equivalent to depth-rst search and therefore complete.
+
+As we have remarked, the basic dierence between Algorithm 2.5 and a more conventional description of depth-rst search is the inclusion of the elimination sets Ei. The conventional description expects nodes to include pointers back to their parents; the siblings of a given node are found by examining the children of that node's parent. Since we will be reorganizing the space as we search, this is impractical in our framework.
+
+It might seem that a more natural solution to this diculty would be to record not the values that have been eliminated for a variable i, but those that remain to be considered. The technical reason that we have not done this is that it is much easier to maintain elimination information as the search progresses. To understand this at an intuitive level, note that when the search backtracks, the conclusion that has implicitly been drawn is that a particular node fails to expand to a solution, as opposed to a conclusion about the currently unexplored portion of the search space. It should be little surprise that the most ecient way to manipulate this information is by recording it in approximately this form.
+
+# 3. Backjumping
+
+How are we to describe dependency-directed backtracking or backjumping in this setting? In these cases, we have a partial solution and have been forced to backtrack; these more sophisticated backtracking mechanisms use information about the reason for the failure to identify backtrack points that might allow the problem to be addressed. As a start, we need to modify Algorithm 2.5 to maintain the explanations for the eliminated values:
+
+Algorithm 3.1 Given as inputs a constraint-satisfaction problem and an elimination mechanism :
+
+- 1. Set P <sup>=</sup> Ei <sup>=</sup> for each i <sup>2</sup> I . Ei is a set of eliminating explanations for i.
+- 2. If P <sup>=</sup> I , return P . Otherwise, select a variable i <sup>2</sup> I P . Set Ei <sup>=</sup> (P; i):
+- 3. Set S <sup>=</sup> Vi Eb i. If S is nonempty, choose an element <sup>v</sup> <sup>2</sup> S. Add (i; v) to P and return to step 2.
+- 4. If S is empty, let (j; vj) be the last entry in P ; if there is no such entry, return failure. Remove (j; vj ) from P . We must have Eb <sup>i</sup> <sup>=</sup> Vi, so that every value for i has been eliminated; let E be the set of al l variables appearing in the explanations for each eliminated value. Add (vj ; E fjg) to Ej , set i <sup>=</sup> j and return to step 3.
+
+Lemma 3.2 Let P be a partial solution obtained during the execution of Algorithm 3.1, and let i <sup>2</sup> P be a variable assigned a value by P . Now if P <sup>0</sup> P can be successfully extended to a complete solution after assigning i the value <sup>v</sup> but (v; E) <sup>2</sup> Ei, we must have
+
+$$E \cap (\overline{P} - \overline{P'}) \neq \emptyset$$
+
+In other words, the assignment of a value to some variable in P P <sup>0</sup> is correctly identied as the source of the problem.
+
+Note that in step 4 of the algorithm, we could have added (vj ; E \ P ) instead of (vj ; E fjg) to Ej ; either way, the idea is to remove from E any variables that are no longer assigned values by P .
+
+In backjumping, we now simply change our backtrack method; instead of removing a single entry from P and returning to the variable assigned a value prior to the problematic variable i, we return to a variable that has actually had an impact on i. In other words, we return to some variable in the set E.
+
+Algorithm 3.3 (Backjumping) Given as inputs a constraint-satisfaction problem and an elimination mechanism :
+
+- 1. Set P <sup>=</sup> Ei <sup>=</sup> for each i <sup>2</sup> I .
+- 2. If P <sup>=</sup> I , return P . Otherwise, select a variable i <sup>2</sup> I P . Set Ei <sup>=</sup> (P; i):
+- 3. Set S <sup>=</sup> Vi Eb i. If S is nonempty, choose an element <sup>v</sup> <sup>2</sup> S. Add (i; v) to P and return to step 2.
+- 4. If S is empty, we must have Eb <sup>i</sup> <sup>=</sup> Vi. Let E be the set of al l variables appearing in the explanations for each eliminated value.
+- 5. If E = , return failure. Otherwise, let (j; vj) be the last entry in P such that j <sup>2</sup> E. Remove from P this entry and any entry following it. Add (vj ; E \ P ) to Ej , set i <sup>=</sup> j and return to step 3.
+
+In step 5, we add (vj ; E \ P ) to Ej , removing from E any variables that are no longer assigned values by P .
+
+# Proposition 3.4 Backjumping is complete and always expands fewer nodes than does depth rst search.
+
+Let us have a look at this in our map-coloring example. If we have a partial coloring P and are looking at a specic state i, suppose that we denote by C the set of colors that are obviously illegal for i because they con
+ict with a color already assigned to one of i's neighbors.
+
+One possible elimination mechanism returns as (P; i) a list of (c; P ) for each color <sup>c</sup> <sup>2</sup> C that has been used to color a neighbor of i. This reproduces depth-rst search, since we gradually try all possible colors but have no idea what went wrong when we need to backtrack since every colored state is included in P . A far more sensible choice would take (P; i) to be a list of (c; <sup>f</sup>ng) where <sup>n</sup> is a neighbor that is already colored c. This would ensure that we backjump to a neighbor of i if no coloring for i can be found.
+
+If this causes us to backjump to another state j, we will add i's neighbors to the eliminating explanation for j's original color, so that if we need to backtrack still further, we consider neighbors of either i or j. This is as it should be, since changing the color of one of i's other neighbors might allow us to solve the coloring problem by reverting to our original choice of color for the state j.
+
+We also have:
+
+Proposition 3.5 The amount of space needed by backjumping is o(i 2 v), where i = <sup>j</sup>I <sup>j</sup> is the number of variables in the problem and v is the number of values for that variable with the largest value set Vi.
+
+This result contrasts sharply with an approach to csps that relies on truth-maintenance techniques to maintain a list of nogoods (de Kleer, 1986). There, the number of nogoods found can grow linearly with the time taken for the analysis, and this will typically be exponential in the size of the problem. Backjumping avoids this problem by resetting the set Ei of eliminating explanations in step 2 of Algorithm 3.3.
+
+The description that we have given is quite similar to that developed in (Bruynooghe, 1981). The explanations there are somewhat coarser than ours, listing all of the variables that have been involved in any eliminating explanation for a particular variable in the csp, but the idea is essentially the same. Bruynooghe's eliminating explanations can be stored in o(i 2 ) space (instead of o(i 2 v)), but the associated loss of information makes the technique less eective in practice. This earlier work is also a description of backjumping only, since intermediate information is erased as the search proceeds.
+
+# 4. Dynamic backtracking
+
+We nally turn to new results. The basic problem with Algorithm 3.3 is not that it backjumps to the wrong place, but that it needlessly erases a great deal of the work that has been done thus far. At the very least, we can retain the values selected for variables that are backjumped over, in some sense moving the backjump variable to the end of the partial solution in order to replace its value without modifying the values of the variables that followed it.
+
+There is an additional modication that will probably be clearest if we return to the example of the introduction. Suppose that in this example, we color only some of the eastern states before returning to the western half of the country. We reorder the variables in order to backtrack to Arizona and eventually succeed in coloring the West without disturbing the colors used in the East.
+
+Unfortunately, when we return East backtracking is required and we nd ourselves needing to change the coloring on some of the eastern states with which we dealt earlier. The ideas that we have presented will allow us to avoid erasing our solution to the problems out West, but if the search through the eastern states is to be ecient, we will need to retain the information we have about the portion of the East's search space that has been eliminated. After all, if we have determined that New York cannot be colored yellow, our changes in the West will not reverse this conclusion { the Mississippi really does isolate one section of the country from the other.
+
+The machinery needed to capture this sort of reasoning is already in place. When we backjump over a variable k, we should retain not only the choice of value for k, but also k's elimination set. We do, however, need to remove from this elimination set any entry that involves the eventual backtrack variable j, since these entries are no longer valid { they depend on the assumption that j takes its old value, and this assumption is now false.
+
+Algorithm 4.1 (Dynamic backtracking I) Given as inputs a constraint-satisfaction problem and an elimination mechanism :
+
+- 1. Set P <sup>=</sup> Ei <sup>=</sup> for each i <sup>2</sup> I .
+- 2. If P <sup>=</sup> I , return P . Otherwise, select a variable i <sup>2</sup> I P . Set Ei <sup>=</sup> Ei [ (P; i).
+- 3. Set S <sup>=</sup> Vi Eb i. If S is nonempty, choose an element <sup>v</sup> <sup>2</sup> S. Add (i; v) to P and return to step 2.
+- 4. If S is empty, we must have Eb <sup>i</sup> <sup>=</sup> Vi; let E be the set of al l variables appearing in the explanations for each eliminated value.
+- 5. If E = , return failure. Otherwise, let (j; vj) be the last entry in P such that j <sup>2</sup> E. Remove (j; vj ) from P and, for each variable k assigned a value after j, remove from Ek any eliminating explanation that involves j. Set
+
+$$E\_j = E\_j \cup \epsilon(P, j) \cup \{ (v\_j, E \cap \overline{P}) \} \tag{2}$$
+
+so that vj is eliminated as a value for j because of the values taken by variables in E \ P . The inclusion of the term (P; j) incorporates new information from variables that have been assigned values since the original assignment of vj to j. Now set i <sup>=</sup> j and return to step 3.
+
+Theorem 4.2 Dynamic backtracking always terminates and is complete. It continues to satisfy Proposition 3.5 and can be expected to expand fewer nodes than backjumping provided that the goal nodes are distributed randomly in the search space.
+
+The essential dierence between dynamic and dependency-directed backtracking is that the structure of our eliminating explanations means that we only save nogood information based on the current values of assigned variables; if a nogood depends on outdated information, we drop it. By doing this, we avoid the need to retain an exponential amount of nogood information. What makes this technique valuable is that (as stated in the theorem) termination is still guaranteed.
+
+There is one trivial modication that we can make to Algorithm 4.1 that is quite useful in practice. After removing the current value for the backtrack variable j, Algorithm 4.1 immediately replaces it with another. But there is no real reason to do this; we could instead pick a value for an entirely dierent variable:
+
+Algorithm 4.3 (Dynamic backtracking) Given as inputs a constraint-satisfaction problem and an elimination mechanism :
+
+- 1. Set P <sup>=</sup> Ei <sup>=</sup> for each i <sup>2</sup> I .
+- 2. If P <sup>=</sup> I , return P . Otherwise, select a variable i <sup>2</sup> I P . Set Ei <sup>=</sup> Ei [ (P; i).
+- 3. Set S <sup>=</sup> Vi Eb i. If S is nonempty, choose an element <sup>v</sup> <sup>2</sup> S. Add (i; v) to P and return to step 2.
+- 4. If S is empty, we must have Eb <sup>i</sup> <sup>=</sup> Vi; let E be the set of al l variables appearing in the explanations for each eliminated value.
+- 5. If E = , return failure. Otherwise, let (j; vj ) be the last entry in P that binds a variable appearing in E. Remove (j; vj) from P and, for each variable k assigned a value after j, remove from Ek any eliminating explanation that involves j. Add (vj ; E \ P ) to Ej and return to step 2.
+
+# 5. An example
+
+In order to make Algorithm 4.3 a bit clearer, suppose that we consider a small mapcoloring problem in detail. The map is shown in Figure 1 and consists of ve countries: Albania, Bulgaria, Czechoslovakia, Denmark and England. We will assume (wrongly!) that the countries border each other as shown in the gure, where countries are denoted by nodes and border one another if and only if there is an arc connecting them.
+
+In coloring the map, we can use the three colors red, yellow and blue. We will typically abbreviate the country names to single letters in the obvious way.
+
+We begin our search with Albania, deciding (say) to color it red. When we now look at Bulgaria, no colors are eliminated because Albania and Bulgaria do not share a border; we decide to color Bulgaria yellow. (This is a mistake.)
+
+We now go on to consider Czechoslovakia; since it borders Albania, the color red is eliminated. We decide to color Czechoslovakia blue and the situation is now this:
+
+![](_page_8_Figure_0.jpeg)
+
+Figure 1: A small map-coloring problem
+
+| country        | color  | red | yellow | blue |
+|----------------|--------|-----|--------|------|
+| Albania        | red    |     |        |      |
+| Bulgaria       | yellow |     |        |      |
+| Czechoslovakia | blue   | A   |        |      |
+| Denmark        |        |     |        |      |
+| England        |        |     |        |      |
+
+For each country, we indicate its current color and the eliminating explanations that mean it cannot be colored each of the three colors (when such explanations exist). We now look at Denmark.
+
+Denmark cannot be colored red because of its border with Albania and cannot be colored yellow because of its border with Bulgaria; it must therefore be colored blue. But now England cannot be colored any color at all because of its borders with Albania, Bulgaria and Denmark, and we therefore need to backtrack to one of these three countries. At this point, the elimination lists are as follows:
+
+| country        | color  | red | yellow | blue |
+|----------------|--------|-----|--------|------|
+| Albania        | red    |     |        |      |
+| Bulgaria       | yellow |     |        |      |
+| Czechoslovakia | blue   | A   |        |      |
+| Denmark        | blue   | A   | B      |      |
+| England        |        | A   | B      | D    |
+
+We backtrack to Denmark because it is the most recent of the three possibilities, and begin by removing any eliminating explanation involving Denmark from the above table to get:
+
+| country        | color  | red | yellow | blue |
+|----------------|--------|-----|--------|------|
+| Albania        | red    |     |        |      |
+| Bulgaria       | yellow |     |        |      |
+| Czechoslovakia | blue   | A   |        |      |
+| Denmark        |        | A   | B      |      |
+| England        |        | A   | B      |      |
+
+Next, we add to Denmark's elimination list the pair
+
+(blue; <sup>f</sup>A; Bg)
+
+This indicates correctly that because of the current colors for Albania and Bulgaria, Denmark cannot be colored blue (because of the subsequent dead end at England). Since every color is now eliminated, we must backtrack to a country in the set <sup>f</sup>A; Bg. Changing Czechoslovakia's color won't help and we must deal with Bulgaria instead. The elimination lists are now:
+
+| country        | color | red | yellow | blue |
+|----------------|-------|-----|--------|------|
+| Albania        | red   |     |        |      |
+| Bulgaria       |       |     |        |      |
+| Czechoslovakia | blue  | A   |        |      |
+| Denmark        |       | A   | B      | A,B  |
+| England        |       | A   | B      |      |
+
+We remove the eliminating explanations involving Bulgaria and also add to Bulgaria's elimination list the pair
+
+```
+(yellow; A)
+```
+indicating correctly that Bulgaria cannot be colored yellow because of the current choice of color for Albania (red).
+
+The situation is now:
+
+| country        | color | red | yellow | blue |
+|----------------|-------|-----|--------|------|
+| Albania        | red   |     |        |      |
+| Czechoslovakia | blue  | A   |        |      |
+| Bulgaria       |       |     | A      |      |
+| Denmark        |       | A   |        |      |
+| England        |       | A   |        |      |
+
+We have moved Bulgaria past Czechoslovakia to re
+ect the search reordering in the algorithm. We can now complete the problem by coloring Bulgaria red, Denmark either yellow or blue, and England the color not used for Denmark.
+
+This example is almost trivially simple, of course; the thing to note is that when we changed the color for Bulgaria, we retained both the blue color for Czechoslovakia and the information indicating that none of Czechoslovakia, Denmark and England could be red. In more complex examples, this information may be very hard-won and retaining it may save us a great deal of subsequent search eort.
+
+Another feature of this specic example (and of the example of the introduction as well) is that the computational benets of dynamic backtracking are a consequence of
+
+the automatic realization that the problem splits into disjoint subproblems. Other authors have also discussed the idea of applying divide-and-conquer techniques to csps (Seidel, 1981; Zabih, 1990), but their methods suer from the disadvantage that they constrain the order in which unassigned variables are assigned values, perhaps at odds with the common heuristic of assigning values rst to those variables that are most tightly constrained. Dynamic backtracking can also be expected to be of use in situations where the problem in question does not split into two or more disjoint subproblems.1
+
+### 6. Experimentation
+
+Dynamic backtracking has been incorporated into the crossword-puzzle generation program described in (Ginsberg, Frank, Halpin, & Torrance, 1990), and leads to signicant performance improvements in that restricted domain. More specically, the method was tested on the problem of generating 19 puzzles of sizes ranging from 2 - 2 to 13 - 13; each puzzle was attempted 100 times using both dynamic backtracking and simple backjumping. The dictionary was shued between solution attempts and a maximum of 1000 backtracks were permitted before the program was deemed to have failed.
+
+In both cases, the algorithms were extended to include iterative broadening (Ginsberg & Harvey, 1992), the cheapest-rst heuristic and forward checking. Cheapest-rst has also been called \most constrained rst"" and selects for instantiation that variable with the fewest number of remaining possibilities (i.e., that variable for which it is cheapest to enumerate the possible values (Smith & Genesereth, 1985)). Forward checking prunes the set of possibilities for crossing words whenever a new word is entered and constitutes our experimental choice of elimination mechanism: at any point, words for which there is no legal crossing word are eliminated. This ensures that no word will be entered into the crossword if the word has no potential crossing words at some point. The cheapest-rst heuristic would identify the problem at the next step in the search, but forward checking reduces the number of backtracks substantially. The \least-constraining"" heuristic (Ginsberg et al., 1990) was not used; this heuristic suggests that each word slot be lled with the word that minimally constrains the subsequent search. The heuristic was not used because it would invalidate the technique of shuing the dictionary between solution attempts in order to gather useful statistics.
+
+The table in Figure 2 indicates the number of successful solution attempts (out of 100) for each of the two methods on each of the 19 crossword frames. Dynamic backtracking is more successful in six cases and less successful in none.
+
+With regard to the number of nodes expanded by the two methods, consider the data presented in Figure 3, where we graph the average number of backtracks needed by the two methods.<sup>2</sup> Although initially comparable, dynamic backtracking provides increasing computational savings as the problems become more dicult. A somewhat broader set of experiments is described in (Jonsson & Ginsberg, 1993) and leads to similar conclusions.
+
+There are some examples in (Jonsson & Ginsberg, 1993) where dynamic backtracking leads to performance degradation, however; a typical case appears in Figure 4.<sup>3</sup> In this
+
+<sup>1.</sup> I am indebted to David McAllester for these observations.
+
+<sup>2.</sup> Only 17 points are shown because no point is plotted where backjumping was unable to solve the problem.
+
+<sup>3.</sup> The worst performance degradation observed was a factor of approximately 4.
+
+|       | Dynamic      |             |       | Dynamic      |             |
+|-------|--------------|-------------|-------|--------------|-------------|
+| Frame | backtracking | Backjumping | Frame | backtracking | Backjumping |
+| 1     | 100          | 100         | 11    | 100          | 98          |
+| 2     | 100          | 100         | 12    | 100          | 100         |
+| 3     | 100          | 100         | 13    | 100          | 100         |
+| 4     | 100          | 100         | 14    | 100          | 100         |
+| 5     | 100          | 100         | 15    | 99           | 14          |
+| 6     | 100          | 100         | 16    | 100          | 26          |
+| 7     | 100          | 100         | 17    | 100          | 30          |
+| 8     | 100          | 100         | 18    | 61           | 0           |
+| 9     | 100          | 100         | 19    | 10           | 0           |
+| 10    | 100          | 100         |       |              |             |
+
+Figure 2: Number of problems solved successfully
+
+![](_page_11_Figure_3.jpeg)
+
+Figure 3: Number of backtracks needed
+
+backjumping
+
+![](_page_12_Figure_1.jpeg)
+
+Figure 4: A dicult problem for dynamic backtracking
+
+gure, we rst color A, then B, then the countries in region 1, and then get stuck in region 2.
+
+We now presumably backtrack directly to B, leaving the coloring of region 1 alone. But this may well be a mistake { the colors in region 1 will restrict our choices for B, perhaps making the subproblem consisting of A, B and region 2 more dicult than it might be. If region 1 were easy to color, we would have been better o erasing it even though we didn't need to.
+
+This analysis suggests that dependency-directed backtracking should also fare worse on those coloring problems where dynamic backtracking has trouble, and we are currently extending the experiments of (Jonsson & Ginsberg, 1993) to conrm this. If this conjecture is borne out, a variety of solutions come to mind. We might, for example, record how many backtracks are made to a node such as B in the above gure, and then use this to determine that 
+exibility at B is more important than retaining the choices made in region 1. The diculty of nding a coloring for region 1 can also be determined from the number of backtracks involved in the search.
+
+# 7. Summary
+
+# 7.1 Why it works
+
+There are two separate ideas that we have exploited in the development of Algorithm 4.3 and the others leading up to it. The rst, and easily the most important, is the notion that it is possible to modify variable order on the 
+y in a way that allows us to retain the results of earlier work when backtracking to a variable that was assigned a value early in the search.
+
+This reordering should not be confused with the work of authors who have suggested a dynamic choice among the variables that remain to be assigned values (Dechter & Meiri, 1989; Ginsberg et al., 1990; P. Purdom & Robertson, 1981; Zabih & McAllester, 1988); we are instead reordering the variables that have been assigned values in the search thus far.
+
+Another way to look at this idea is that we have found a way to \erase"" the value given to a variable directly as opposed to backtracking to it. This idea has also been explored by Minton et.al. in (Minton, Johnston, Philips, & Laird, 1990) and by Selman et.al. in (Selman, Levesque, & Mitchell, 1992); these authors also directly replace values assigned to variables in satisability problems. Unfortunately, the heuristic repair method used is incomplete because no dependency information is retained from one state of the problem solver to the next.
+
+There is a third way to view this as well. The space that we are examining is really a graph, as opposed to a tree; we reach the same point by coloring Albania blue and then Bulgaria red as if we color them in the opposite order. When we decide to backjump from a particular node in the search space, we know that we need to back up until some particular property of that node ceases to hold { and the key idea is that by backtracking along a path other than the one by which the node was generated, we may be able to backtrack only slightly when we would otherwise need to retreat a great deal. This observation is interesting because it may well apply to problems other than csps. Unfortunately, it is not clear how to guarantee completeness for a search that discovers a node using one path and backtracks using another.
+
+The other idea is less novel. As we have already remarked, our use of eliminating explanations is quite similar to the use of nogoods in the atms community; the principal dierence is that we attach the explanations to the variables they impact and drop them when they cease to be relevant. (They might become relevant again later, of course.) This avoids the prohibitive space requirements of systems that permanently cache the results of their nogood calculations; this observation also may be extensible beyond the domain of csps specically. Again, there are other ways to view this { Gashnig's notion of backmarking (Gaschnig, 1979) records similar information about the reason that particular portions of a search space are known not to contain solutions.
+
+### 7.2 Future work
+
+There are a variety of ways in which the techniques we have presented can be extended; in this section, we sketch a few of the more obvious ones.
+
+#### 7.2.1 Backtracking to older culprits
+
+One extension to our work involves lifting the restriction in Algorithm 4.3 that the variable erased always be the most recently assigned member of the set E.
+
+In general, we cannot do this while retaining the completeness of the search. Consider the following example:
+
+Imagine that our csp involves three variables, x, y and z, that can each take the value 0 or 1. Further, suppose that this csp has no solutions, in that after we pick any two values for <sup>x</sup> and for y, we realize that there is no suitable choice for z.
+
+We begin by taking <sup>x</sup> = y = 0; when we realize the need to backtrack, we introduce the nogood
+
+$$x = 0 \supset y \neq 0 \tag{3}$$
+
+and replace the value for y with y = 1.
+
+This fails, too, but now suppose that we were to decide to backtrack to x, introducing the new nogood
+
+$$y = 1 \supset x \neq 0 \tag{4}$$
+
+We change <sup>x</sup>'s value to 1 and erase (3).
+
+This also fails. We decide that y is the problem and change its value to 0, introducing the nogood
+
+$$x = 1 \supset y \neq 1$$
+
+but erasing (4). And when this fails, we are in danger of returning to <sup>x</sup> = y = 0, which we eliminated at the beginning of the example. This loop may cause a modied version of the dynamic backtracking algorithm to fail to terminate.
+
+In terms of the proof of Theorem 4.2, the nogoods discovered already include information about all assigned variables, so there is no dierence between (7) and (8). When we drop (3) in favor of (4), we are no longer in a position to recover (3).
+
+We can deal with this by placing conditions on the variables to which we choose to backtrack; the conditions need to be dened so that the proof of Theorem 4.2 continues to hold.<sup>4</sup> Experimentation indicates that loops of the form we have described are extremely rare in practice; it may also be possible to detect them directly and thereby retain more substantial freedom in the choice of backtrack point.
+
+This freedom of backtrack raises an important question that has not yet been addressed in the literature: When backtracking to avoid a diculty of some sort, to where should one backtrack?
+
+Previous work has been constrained to backtrack no further than the most recent choice that might impact the problem in question; any other decision would be both incomplete and inecient. Although an extension of Algorithm 4.3 need not operate under this restriction, we have given no indication of how the backtrack point should be selected.
+
+There are several easily identied factors that can be expected to bear on this choice. The rst is that there remains a reason to expect backtracking to chronologically recent choices to be the most eective { these choices can be expected to have contributed to the fewest eliminating explanations, and there is obvious advantage to retaining as many eliminating explanations as possible from one point in the search to the next. It is possible, however, to simply identify that backtrack point that aects the fewest number of eliminating explanations and to use that.
+
+Alternatively, it might be important to backtrack to the choice point for which there will be as many new choices as possible; as an extreme example, if there is a variable i for which every value other than its current one has already been eliminated for other reasons, backtracking to i is guaranteed to generate another backtrack immediately and should probably be avoided if possible.
+
+<sup>4.</sup> Another solution appears in (McAllester, 1993).
+
+Finally, there is some measure of the \directness"" with which a variable bears on a problem. If we are unable to nd a value for a particular variable i, it is probably sensible to backtrack to a second variable that shares a constraint with i itself, as opposed to some variable that aects i only indirectly.
+
+How are these competing considerations to be weighed? I have no idea. But the framework we have developed is interesting because it allows us to work on this question. In more basic terms, we can now \debug"" partial solutions to csps directly, moving laterally through the search space in an attempt to remain as close to a solution as possible. This sort of lateral movement seems central to human solution of dicult search problems, and it is encouraging to begin to understand it in a formal way.
+
+### 7.2.2 Dependency pruning
+
+It is often the case that when one value for a variable is eliminated while solving a csp, others are eliminated as well. As an example, in solving a scheduling problem a particular choice of time (say t = 16) may be eliminated for a task A because there then isn't enough time between A and a subsequent task B; in this case, all later times can obviously be eliminated for A as well.
+
+Formalizing this can be subtle; after all, a later time for A isn't uniformly worse than an earlier time because there may be other tasks that need to precede A and making A later makes that part of the schedule easier. It's the problem with B alone that forces A to be earlier; once again, the analysis depends on the ability to maintain dependency information as the search proceeds.
+
+We can formalize this as follows. Given a csp (I ; V ; ), suppose that the value <sup>v</sup> has been assigned to some i <sup>2</sup> I . Now we can construct a new csp (I <sup>0</sup> ; V <sup>0</sup> ; 0 ) involving the remaining variables I <sup>0</sup> = I fig, where the new set V <sup>0</sup> need not mention the possible values Vi for i, and where 0 is generated from by modifying the constraints to indicate that i has been assigned the value v. We also make the following denition:
+
+Denition 7.1 Given a csp, suppose that i is a variable that has two possible values <sup>u</sup> and v. We will say that v is stricter than u if every constraint in the csp induced by assigning <sup>u</sup> to i is also a constraint in the csp induced by assigning i the value v.
+
+The point, of course, is that if v is stricter than u is, there is no point to trying a solution involving v once u has been eliminated. After all, nding such a solution would involve satisfying all of the constraints in the v restriction, these are a superset of those in the u restriction, and we were unable to satisfy the constraints in the u restriction originally.
+
+The example with which we began this section now generalizes to the following:
+
+Proposition 7.2 Suppose that a csp involves a set S of variables, and that we have a partial solution that assigns values to the variables in some subset P S. Suppose further that if we extend this partial solution by assigning the value <sup>u</sup> to a variable i <sup>62</sup> P , there is no further extension to a solution of the entire csp. Now consider the csp involving the variables in S P that is induced by the choices of values for variables in P . If <sup>v</sup> is stricter than <sup>u</sup> as a choice of value for i in this problem, the original csp has no solution that both assigns <sup>v</sup> to i and extends the given partial solution on P .
+
+This proposition isn't quite enough; in the earlier example, the choice of t = 17 for A will not be stricter than t = 16 if there is any task that needs to be scheduled before A is. We need to record the fact that B (which is no longer assigned a value) is the source of the diculty. To do this, we need to augment the dependency information with which we are working.
+
+More precisely, when we say that a set of variables <sup>f</sup>xig eliminates a value v for a variable x, we mean that our search to date has allowed us to conclude that
+
+$$(v\_1 = x\_1) \land \dots \land (v\_k = x\_k) \supset v \neq x\_k$$
+
+where the vi are the current choices for the xi. We can obviously rewrite this as
+
+$$(v\_1 = x\_1) \land \dots \land (v\_k = x\_k) \land (v = x) \supset F \tag{5}$$
+
+where F indicates that the csp in question has no solution.
+
+Let's be more specic still, indicating in (5) exactly which csp has no solution:
+
+$$\begin{pmatrix} v\_1 = x\_1 \\ \end{pmatrix} \land \dots \land \begin{pmatrix} v\_k = x\_k \\ \end{pmatrix} \land \begin{pmatrix} v = x \\ \end{pmatrix} \supset F(I) \tag{6}$$
+
+where I is the set of variables in the complete csp.
+
+Now we can address the example with which we began this section; the csp that is known to fail in an expression such as (6) is not the entire problem, but only a subset of it. In the example, we are considering, the subproblem involves only the two tasks A and B. In general, we can augment our nogoods to include information about the subproblems on which they fail, and then measure strictness with respect to these restricted subproblems only. In our example, this will indeed allow us to eliminate t = 17 from consideration as a possible time for A.
+
+The additional information stored with the nogoods doubles their size (we have to store a second subset of the variables in the csp), and the variable sets involved can be manipulated easily as the search proceeds. The cost involved in employing this technique is therefore that of the strictness computation. This may be substantial given the data structures currently used to represent csps (which typically support the need to check if a constraint has been violated but little more), but it seems likely that compile-time modications to these data structures can be used to make the strictness question easier to answer. In scheduling problems, preliminary experimental work shows that the idea is an important one; here, too, there is much to be done.
+
+The basic lesson of dynamic backtracking is that by retaining only those nogoods that are still relevant given the partial solution with which we are working, the storage diculties encountered by full dependency-directed methods can be alleviated. This is what makes all of the ideas we have proposed possible { erasing values, selecting alternate backtrack points, and dependency pruning. There are surely many other eective uses for a practical dependency maintenance system as well.
+
+### Acknowledgements
+
+This work has been supported by the Air Force Oce of Scientic Research under grant number 92-0693 and by DARPA/Rome Labs under grant number F30602-91-C-0036. I
+
+would like to thank Rina Dechter, Mark Fox, Don Geddis, Will Harvey, Vipin Kumar, Scott Roy and Narinder Singh for helpful comments on these ideas. Ari Jonsson and David McAllester provided me invaluable assistance with the experimentation and proofs respectively.
+
+# A. Proofs
+
+Lemma 2.4 Let be a complete elimination mechanism for a csp, let P be a partial solution to this csp and let i <sup>62</sup> P . Now if P can be successfully extended to a complete solution after assigning i the value v, then <sup>v</sup> <sup>62</sup> b(P; i).
+
+Proof. Suppose otherwise, so that (v; E) <sup>2</sup> (P; i). It follows directly from the completeness of that
+
+$$E \cap (\overline{P} - \overline{P}) \neq \mathbb{Q}$$
+
+a contradiction.
+
+Lemma 2.6 At any point in the execution of Algorithm 2.5, if the last element of the partial solution P assigns a value to the variable i, then the unexplored siblings of the current node are those that assign to i the values in Vi Ei.
+
+Proof. We rst note that when we decide to assign a value to a new variable i in step 2 of the algorithm, we take Ei <sup>=</sup> b(P; i) so that Vi Ei is the set of allowed values for this variable. The lemma therefore holds in this case. The fact that it continues to hold through each repetition of the loop in steps 3 and 4 is now a simple induction; at each point, we add to Ei the node that has just failed as a possible value to be assigned to i.
+
+Proposition 2.7 Algorithm 2.5 is equivalent to depth-rst search and therefore complete. Proof. This is an easy consequence of the lemma. Partial solutions correspond to nodes in the search space.
+
+Lemma 3.2 Let P be a partial solution obtained during the execution of Algorithm 3.1, and let i <sup>2</sup> P be a variable assigned a value by P . Now if P <sup>0</sup> P can be successfully extended to a complete solution after assigning i the value <sup>v</sup> but (v; E) <sup>2</sup> Ei, we must have
+
+$$E \cap (\overline{P} - \overline{P'}) \neq \mathbb{Q}$$
+
+Proof. As in the proof of Lemma 2.6, we show that no step of Algorithm 3.1 can cause Lemma 3.2 to become false.
+
+That the lemma holds after step 2, where the search is extended to consider a new variable, is an immediate consequence of the assumption that the elimination mechanism is complete.
+
+In step 4, when we add (vj ; E fjg) to the set of eliminating explanations for j, we are simply recording the fact that the search for a solution with j set to vj failed because we were unable to extend the solution to i. It is a consequence of the inductive hypothesis that as long as no variable in E fjg changes, this conclusion will remain valid.
+
+Proposition 3.4 Backjumping is complete and always expands fewer nodes than does depth rst search.
+
+Proof. That fewer nodes are examined is clear; for completeness, it follows from Lemma 3.2 that the backtrack to some element of E in step 5 will always be necessary if a solution is to be found.
+
+Proposition 3.5 The amount of space needed by backjumping is o(i 2 v), where i = <sup>j</sup>I <sup>j</sup> is the number of variables in the problem and v is the number of values for that variable with the largest value set Vi.
+
+Proof. The amount of space needed is dominated by the storage requirements of the elimination sets Ej ; there are i of these. Each one might refer to each of the possible values for a particular variable j; the space needed to store the reason that the value j is eliminated is at most <sup>j</sup>I j, since the reason is simply a list of variables that have been assigned values. There will never be two eliminating explanations for the same variable, since is concise and we never rebind a variable to a value that has been eliminated.
+
+Theorem 4.2 Dynamic backtracking always terminates and is complete. It continues to satisfy Proposition 3.5 and can be expected to expand fewer nodes than backjumping provided that the goal nodes are distributed randomly in the search space.
+
+Proof. There are four things we need to show: That dynamic backtracking needs o(i 2 v) space, that it is complete, that it can be expected to expand fewer nodes than backjumping, and that it terminates. We prove things in this order.
+
+Space This is clear; the amount of space needed continues to be bounded by the structure of the eliminating explanations.
+
+Completeness This is also clear, since by Lemma 3.2, all of the eliminating explanations retained in the algorithm are obviously still valid. The new explanations added in (2) are also obviously correct, since they indicate that j cannot take the value vj as in backjumping and that j also cannot take any values that are eliminated by the variables being backjumped over.
+
+Eciency To see that we expect to expand fewer nodes, suppose that the subproblem involving only the variables being jumped over has s solutions in total, one of which is given by the existing variable assignments. Assuming that the solutions are distributed randomly in the search space, there is at least a 1=s chance that this particular solution leads to a solution of the entire csp; if so, the reordered search { which considers this solution earlier than the other { will save the expense of either assigning new values to these variables or repeating the search that led to the existing choices. The reordered search will also benet from the information in the nogoods that have been retained for the variables being jumped over.
+
+Termination This is the most dicult part of the proof.
+
+As we work through the algorithm, we will be generating (and then discarding) a variety of eliminating explanations. Suppose that <sup>e</sup> is such an explanation, saying that j cannot take the value vj because of the values currently taken by the variables in some set eV . We will denote the variables in eV by x1; . . . ; xk and their current values by v1; . . . ; vk. In declarative terms, the eliminating explanation is telling us that
+
+$$\left(\left(x\_1 = v\_1\right) \land \dots \land \left(x\_k = v\_k\right) \supset j \neq v\_j\right) \tag{7}$$
+
+Dependency-directed backtracking would have us accumulate all of these nogoods; dynamic backtracking allows us to drop any particular instance of (7) for which the antecedent is no longer valid.
+
+The reason that dependency-directed backtracking is guaranteed to terminate is that the set of accumulated nogoods eliminates a monotonically increasing amount of the search space. Each nogood eliminates a new section of the search space because the nature of the search process is such that any node examined is consistent with the nogoods that have been accumulated thus far; the process is monotonic because all nogoods are retained throughout the search. These arguments cannot be applied to dynamic backtracking, since nogoods are forgotten as the search proceeds. But we can make an analogous argument.
+
+To do this, suppose that when we discover a nogood like (7), we record with it all of the variables that precede the variable j in the partial order, together with the values currently assigned to these variables. Thus an eliminating explanation becomes essentially a nogood <sup>n</sup> of the form (7) together with a set S of variable/value pairs.
+
+We now dene a mapping (n; S) that changes the antecedent of (7) to include assumptions about al l the variables bound in S, so that if S = <sup>f</sup>si; vig,
+
+$$\lambda(\mathfrak{n}, \mathbf{S}) = [(\mathfrak{s}\_1 = v\_1) \wedge \dots \wedge (\mathfrak{s} = v\_l) \supset j \neq v\_j] \tag{8}$$
+
+At any point in the execution of the algorithm, we denote by N the conjunction of the modied nogoods of the form (8).
+
+We now make the following claims:
+
+- 1. For any eliminating explanation (n; S), <sup>n</sup> j= (n; S) so that (n; S) is valid for the problem at hand.
+- 2. For any new eliminating explanation (n; S), (n; S) is not a consequence of N.
+- 3. The deductive consequences of N grow monotonically as the dynamic backtracking algorithm proceeds.
+
+The theorem will follow from these three observations, since we will know that N is a valid set of conclusions for our search problem and that we are once again making monotonic progress toward eliminating the entire search space and concluding that the problem is unsolvable.
+
+That (n; S) is a consequence of (n; S) is clear, since the modication used to obtain (8) from (7) involves strengthening that antecedent of (7). It is also clear that (n; S) is not a consequence of the nogoods already obtained, since we have added to the antecedent only conditions that hold for the node of the search space currently under examination. If (n; S) were a consequence of the nogoods we had obtained thus far, this node would not be being considered.
+
+The last observation depends on the following lemma:
+
+Lemma A.1 Suppose that x is a variable assigned a value by our partial solution and that <sup>x</sup> appears in the antecedent of the nogood <sup>n</sup> in the pair (n; S). Then if S0 is the set of variables assigned values no later than x, S0 S.
+
+Proof. Consider a y <sup>2</sup> S0 , and suppose that it were not in S. We cannot have y = x, since y would then be mentioned in the nogood <sup>n</sup> and therefore in S. So we can suppose that y is actually assigned a value earlier than <sup>x</sup> is. Now when (n; S) was added to the set of eliminating explanations, it must have been the case that x was assigned a value (since it appears in the antecedent of n) but that y was not. But we also know that there was a later time when y was assigned a value but <sup>x</sup> was not, since y precedes <sup>x</sup> in the current partial solution. This means that <sup>x</sup> must have changed value at some point after (n; S) was added to the set of eliminating explanations { but (n; S) would have been deleted when this happened. This contradiction completes the proof.
+
+Returning to the proof the Theorem 4.2, suppose that we eventually drop (n; S) from our collection of nogoods and that when we do so, the new nogood being added is (n0 ; S0 ). It follows from the lemma that S0 S. Since xi <sup>=</sup> vi is a clause in the antecedent of (n; S), it follows that (n0 ; S0 ) will imply the negation of the antecedent of (n; S) and will therefore imply (n; S) itself. Although we drop (n; S) when we drop the nogood (n; S), (n; S) continues to be entailed by the modied set N, the consequences of which are seen to be growing monotonically.
+
+# References
+
+- Bruynooghe, M. (1981). Solving combinatorial search problems by intelligent backtracking. Information Processing Letters, 12 (1), 36{39.
+- de Kleer, J. (1986). An assumption-based truth maintenance system. Articial Intel ligence, 28, 127{162.
+- Dechter, R., & Meiri, I. (1989). Experimental evaluation of preprocessing techniques in constraint satisfaction problems. In Proceedings of the Eleventh International Joint Conference on Articial Intel ligence, pp. 271{277.
+- Gaschnig, J. (1979). Performance measurement and analysis of certain search algorithms. Tech. rep. CMU-CS-79-124, Carnegie-Mellon University.
+- Ginsberg, M. L., Frank, M., Halpin, M. P., & Torrance, M. C. (1990). Search lessons learned from crossword puzzles. In Proceedings of the Eighth National Conference on Articial Intel ligence, pp. 210{215.
+- Ginsberg, M. L., & Harvey, W. D. (1992). Iterative broadening. Articial Intel ligence, 55, 367{383.
+- Jonsson, A. K., & Ginsberg, M. L. (1993). Experimenting with new systematic and nonsystematic search techniques. In Proceedings of the AAAI Spring Symposium on AI and NP-Hard Problems Stanford, California.
+- McAllester, D. A. (1993). Partial order backtracking. Journal of Articial Intel ligence Research, 1. Submitted.
+- Minton, S., Johnston, M. D., Philips, A. B., & Laird, P. (1990). Solving large-scale constraint satisfaction and scheduling problems using a heuristic repair method. In Proceedings of the Eighth National Conference on Articial Intel ligence, pp. 17{24.
+- P. Purdom, C. B., & Robertson, E. (1981). Backtracking with multi-level dynamic search rearrangement. Acta Informatica, 15, 99{114.
+- Seidel, R. (1981). A new method for solving constraint satisfaction problems. In Proceedings of the Seventh International Joint Conference on Articial Intel ligence, pp. 338{342.
+- Selman, B., Levesque, H., & Mitchell, D. (1992). A new method for solving hard satisability problems. In Proceedings of the Tenth National Conference on Articial Intel ligence.
+- Smith, D. E., & Genesereth, M. R. (1985). Ordering conjunctive queries. Articial Intel ligence, 26 (2), 171{215.
+- Stallman, R. M., & Sussman, G. J. (1977). Forward reasoning and dependency-directed backtracking in a system for computer-aided circuit analysis. Articial Intel ligence, 9 (2), 135{196.
+- Zabih, R. (1990). Some applications of graph bandwidth to constraint satisfaction problems. In Proceedings of the Eighth National Conference on Articial Intel ligence, pp. 46{51.
+- Zabih, R., & McAllester, D. A. (1988). A rearrangement search strategy for determining propositional satisability. In Proceedings of the Seventh National Conference on Articial Intel ligence, pp. 155{160.","Because of their occasional need to return to shallow points in a search
+tree, existing backtracking methods can sometimes erase meaningful progress
+toward solving a search problem. In this paper, we present a method by which
+backtrack points can be moved deeper in the search space, thereby avoiding this
+difficulty. The technique developed is a variant of dependency-directed
+backtracking that uses only polynomial space while still providing useful
+control information and retaining the completeness guarantees provided by
+earlier approaches."
+"# A Market-Oriented Programming Environment and its Application to Distributed Multicommodity Flow Problems
+
+Michael P. Wellman wellman@engin.umich.edu
+
+University of Michigan, Dept. of Electrical Engineering and Computer Science, Ann Arbor, MI 48109 USA
+
+## Abstract
+
+Market price systems constitute a well-understood class of mechanisms that under certain conditions provide eective decentralization of decision making with minimal communication overhead. In a market-oriented programming approach to distributed problem solving, we derive the activities and resource allocations for a set of computational agents by computing the competitive equilibrium of an articial economy. Walras provides basic constructs for dening computational market structures, and protocols for deriving their corresponding price equilibria. In a particular realization of this approach for a form of multicommodity 
+ow problem, we see that careful construction of the decision process according to economic principles can lead to ecient distributed resource allocation, and that the behavior of the system can be meaningfully analyzed in economic terms.
+
+## 1. Distributed Planning and Economics
+
+In a distributed or multiagent planning system, the plan for the system as a whole is a composite of plans produced by its constituent agents. These plans may interact signicantly in both the resources required by each of the agents' activities (preconditions) and the products resulting from these activities (postconditions). Despite these interactions, it is often advantageous or necessary to distribute the planning process because agents are separated geographically, have dierent information, possess distinct capabilities or authority, or have been designed and implemented separately. In any case, because each agent has limited competence and awareness of the decisions produced by others, some sort of coordination is required to maximize the performance of the overall system. However, allocating resources via central control or extensive communication is deemed infeasible, as it violates whatever constraints dictated distribution of the planning task in the rst place.
+
+The task facing the designer of a distributed planning system is to dene a computationally ecient coordination mechanism and its realization for a collection of agents. The agent conguration may be given, or may itself be a design parameter. By the term agent, I refer to a module that acts within the mechanism according to its own knowledge and interests. The capabilities of the agents and their organization in an overall decision-making structure determine the behavior of the system as a whole. Because it concerns the collective behavior of self-interested decision makers, the design of this decentralized structure is fundamentally an exercise in economics or incentive engineering. The problem of developing architectures for distributed planning ts within the framework of mechanism design (Hurwicz, 1977; Reiter, 1986), and many ideas and results from economics are directly applicable. In particular, the class of mechanisms based on price systems and competition has been deeply investigated by economists, who have characterized the conditions for its eciency
+
+and compatibility with other features of the economy. When applicable, the competitive mechanism achieves coordination with minimal communication requirements (in a precise sense related to the dimensionality of messages transmitted among agents (Reiter, 1986)).
+
+The theory of general equilibrium (Hildenbrand & Kirman, 1976) provides the foundation for a general approach to the construction of distributed planning systems based on price mechanisms. In this approach, we regard the constituent planning agents as consumers and producers in an articial economy, and dene their individual activities in terms of production and consumption of commodities. Interactions among agents are cast as exchanges, the terms of which are mediated by the underlying economic mechanism, or protocol. By specifying the universe of commodities, the conguration of agents, and the interaction protocol, we can achieve a variety of interesting and often eective decentralized behaviors. Furthermore, we can apply economic theory to the analysis of alternative architectures, and thus exploit a wealth of existing knowledge in the design of distributed planners.
+
+I use the phrase market-oriented programming to refer to the general approach of deriving solutions to distributed resource allocation problems by computing the competitive equilibrium of an articial economy.<sup>1</sup> In the following, I describe this general approach and a primitive programming environment supporting the specication of computational markets and derivation of equilibrium prices. An example problem in distributed transportation planning demonstrates the feasibility of decentralizing a problem with nontrivial interactions, and the applicability of economic principles to distributed problem solving.
+
+## 2. WALRAS: A Market-Oriented Programming Environment
+
+To explore the use of market mechanisms for the coordination of distributed planning modules, I have developed a prototype environment for specifying and simulating computational markets. The system is called walras, after the 19th-century French economist Leon Walras, who was the rst to envision a system of interconnected markets in price equilibrium. Walras provides basic mechanisms implementing various sorts of agents, auctions, and bidding protocols. To specify a computational economy, one denes a set of goods and instantiates a collection of agents that produce or consume those goods. Depending on the context, some of the goods or agents may be xed exogenously, for example, they could correspond to real-world goods or agents participating in the planning process. Others might be completely articial ones invented by the designer to decentralize the problem-solving process in a particular way. Given a market conguration, walras then runs these agents to determine an equilibrium allocation of goods and activities. This distribution of goods and activities constitutes the market solution to the planning problem.
+
+<sup>1.</sup> The name was inspired by Shoham's use of agent-oriented programming to refer to a specialization of ob ject-oriented programming where the entities are described in terms of agent concepts and interact via speech acts (Shoham, 1993). Market-oriented programming is an analogous specialization, where the entities are economic agents that interact according to market concepts of production and exchange. The phrase has also been invoked by Lavoie, Baetjer, and Tulloh (1991) to refer to real markets in software components.
+
+#### 2.1 General Equilibrium
+
+The walras framework is patterned directly after general-equilibrium theory. A brief exposition, glossing over many ne points, follows; for elaboration see any text on microeconomic theory (e.g., (Varian, 1984)).
+
+We start with k goods and <sup>n</sup> agents. Agents fall in two general classes. Consumers can buy, sell, and consume goods, and their preferences for consuming various combinations or bundles of goods are specied by their utility function. If agent i is a consumer, then its utility function, ui : <k + ! <, ranks the various bundles of goods according to preference. Consumers may also start with an initial allocation of some goods, termed their endowment. Let ei;j denote agent i's endowment of good j, and xi;j the amount of good j that i ultimately consumes. The ob jective of consumer i is to choose a feasible bundle of goods, (xi;1; : : : ; xi;k) (rendered in vector notation as xi), so as to maximize its utility. A bundle is feasible for consumer i if its total cost at the going prices does not exceed the value of i's endowment at these prices. The consumer's choice can be expressed as the following constrained optimization problem:
+
+$$\max\_{\mathbf{x}} u\_i(\mathbf{x}\_i) \text{ s.t. } \mathbf{p} \cdot \mathbf{x}\_i \le \mathbf{p} \cdot \mathbf{e}\_i,\tag{1}$$
+
+where <sup>p</sup> = (p1; : : : ; pk ) is the vector of prices for the k goods.
+
+xi
+
+Agents of the second type, producers, can transform some sorts of goods into some others, according to their technology. The technology species the feasible combinations of inputs and outputs for the producer. Let us consider the special case where there is one output good, indexed j, and the remaining goods are potential inputs. In that case, the technology for producer i can be described by a production function,
+
+$$y\_i = -x\_{i,j} = f\_i(x\_{i,1}, \dots, x\_{i,j-1}, x\_{i,j+1}, \dots, x\_{i,k}),$$
+
+specifying the maximum output producible from the given inputs. (When a good is an input in its own production, the production function characterizes net output.) In this case, the producer's ob jective is to choose a production plan that maximizes prots sub ject to its technology and the going price of its output and input goods. This involves choosing a production level, yi , along with the levels of inputs that can produce yi at the minimum cost. Let xi;| and p| denote the consumption and prices, respectively, of the input goods. Then the corresponding constrained optimization problem is to maximize prots, the dierence between revenues and costs:
+
+$$\max\_{y\_i} \left[ p\_j y\_i - \left[ \min\_{\mathbf{x}\_{i,\mathcal{J}}} \mathbf{p}\_{\mathcal{T}} \cdot \mathbf{x}\_{i,\mathcal{T}} \text{ s.t. } y\_i \le f\_i(\mathbf{x}\_{i,\mathcal{I}}) \right] \right],$$
+
+or equivalently,
+
+$$\min\_{\mathbf{x}\_i} \mathbf{p} \cdot \mathbf{x}\_i \text{ s.t. } -x\_{i,j} \le f\_i(\mathbf{x}\_{i,\mathcal{T}}). \tag{2}$$
+
+An agent acts competitively when it takes prices as given, neglecting any impact of its own behavior on prices. The above formulation implicitly assumes perfect competition, in that the prices are parameters of the agents' constrained optimization problems. Perfect competition realistically re
+ects individual rationality when there are numerous agents, each small with respect to the entire economy. Even when this is not the case, however, we can
+
+implement competitive behavior in individual agents if we so choose. The implications of the restriction to perfect competition are discussed further below.
+
+A pair (p; x) of a price vector and vector of demands for each agent constitutes a competitive equilibrium for the economy if and only if:
+
+- 1. For each agent i, xi is a solution to its constrained optimization problem|(1) or (2)|at prices p, and
+- 2. the net amount of each good produced and consumed equals the total endowment,
+
+$$\sum\_{i=1}^{n} x\_{i,j} = \sum\_{i=1}^{n} e\_{i,j}, \text{ for } j = 1, \dots, k. \tag{3}$$
+
+In other words, the total amount consumed equals the total amount produced (counted as negative quantities in the consumption bundles of producers), plus the total amount the economy started out with (the endowments).
+
+Under certain \classical"" assumptions (essentially continuity, monotonicity, and concavity of the utility and production functions; see, e.g., (Hildenbrand & Kirman, 1976; Varian, 1984)), competitive equilibria exist, and are unique given strictness of these conditions. From the perspective of mechanism design, competitive equilibria possess several desirable properties, in particular, the two fundamental welfare theorems of general equilibrium theory: (1) all competitive equilibria are Pareto optimal (no agent can do better without some other doing worse), and (2) any feasible Pareto optimum is a competitive equilibrium for some initial allocation of the endowments. These properties seem to oer exactly what we need: a bound on the quality of the solution, plus the prospect that we can achieve the most desired behavior by carefully engineering the conguration of the computational market. Moreover, in equilibrium, the prices re
+ect exactly the information required for distributed agents to optimally evaluate perturbations in their behavior without resorting to communication or reconsideration of their full set of possibilities (Koopmans, 1970).
+
+#### 2.2 Computing Competitive Equilibria
+
+Competitive equilibria are also computable, and algorithms based on xed-point methods (Scarf, 1984) and optimization techniques (Nagurney, 1993) have been developed. Both sorts of algorithms in eect operate by collecting and solving the simultaneous equilibrium equations (1), (2), and (3)). Without an expressly distributed formulation, however, these techniques may violate the decentralization considerations underlying our distributed problem-solving context. This is quite acceptable for the purposes these algorithms were originally designed, namely to analyze existing decentralized structures, such as transportation industries or even entire economies (Shoven & Whalley, 1992). But because our purpose is to implement a distributed system, we must obey computational distributivity constraints not relevant to the usual purposes of applied general-equilibrium analysis. In general, explicitly examining the space of commodity bundle allocations in the search for equilibrium undercuts our original motive for decomposing complex activities into consumption and production of separate goods.
+
+Another important constraint is that internal details of the agents' state (such as utility or production functions and bidding policy) should be considered private in order to maximize modularity and permit inclusion of agents not under the designers' direct control. A consequence of this is that computationally exploiting global properties arising from special features of agents would not generally be permissible for our purposes. For example, the constraint that prots be zero is a consequence of competitive behavior and constantreturns production technology. Since information about the form of the technology and bidding policy is private to producer agents, it could be considered cheating to embed the zero-prot condition into the equilibrium derivation procedure.
+
+Walras's procedure is a decentralized relaxation method, akin to the mechanism of tatonnement originally sketched by Leon Walras to explain how prices might be derived. In the basic tatonnement method, we begin with an initial vector of prices, p0. The agents determine their demands at those prices (by solving their corresponding constrained optimization problems), and report the quantities demanded to the \auctioneer"". Based on these reports, the auctioneer iteratively adjusts the prices up or down as there is an excess of demand or supply, respectively. For instance, an adjustment proportional to the excess could be modeled by the dierence equation
+
+$$\mathbf{p}\_{t+1} = \mathbf{p}\_t + \alpha (\sum\_{i=1}^n \mathbf{x}\_i - \sum\_{i=1}^n \mathbf{e}\_i).$$
+
+If the sequence p0; p1; : : : converges, then the excess demand in each market approaches zero, and the result is a competitive equilibrium. It is well known, however, that tatonnement processes do not converge to equilibrium in general (Scarf, 1984). The class of economies in which tatonnement works are those with so-called stable equilibria (Hicks, 1948). A sucient condition for stability is gross substitutability (Arrow & Hurwicz, 1977): that if the price for one good rises, then the net demands for the other goods do not decrease. Intuitively, gross substitutability will be violated when there are complementarities in preferences or technologies such that reduced consumption for one good will cause reduced consumption in others as well (Samuelson, 1974).
+
+### 2.3 WALRAS Bidding Protocol
+
+The method employed by walras successively computes an equilibrium price in each separate market, in a manner detailed below. Like tatonnement, it involves an iterative adjustment of prices based on reactions of the agents in the market. However, it diers from traditional tatonnement procedures in that (1) agents submit supply and demand curves rather than single point quantities for a particular price, and (2) the auction adjusts individual prices to clear, rather than adjusting the entire price vector by some increment (usually a function of summary statistics such as excess demand).<sup>2</sup>
+
+Walras associates an auction with each distinct good. Agents act in the market by submitting bids to auctions. In walras, bids specify a correspondence between prices and
+
+<sup>2.</sup> This general approach is called progressive equilibration by Dafermos and Nagurney (1989), who applied it to a particular transportation network equilibrium problem. Although this model of market dynamics does not appear to have been investigated very extensively in general-equilibrium theory, it does seem to match the kind of price adjustment process envisioned by Hicks in his pioneering study of dynamics and stability (Hicks, 1948).
+
+quantities of the good that the agent oers to demand or supply. The bid for a particular good corresponds to one dimension of the agent's optimal demand, which is parametrized by the prices for all relevant goods. Let xi(p) be the solution to equation (1) or (2), as appropriate, for prices p. A walras agent bids for good j under the assumption that prices for the remaining goods are xed at their current values, p|. Formally, agent i's bid for good j is a function xi;j : <+ ! <, from prices to quantities satisfying
+
+xi;j (pj) = xi(pj ; p|)j ;
+
+where the subscript j on the right-hand side selects the quantity demanded of good j from the overall demand vector. The agent computes and sends this function (encoded in any of a variety of formats) to the auction for good j.
+
+Given bids from all interested agents, the auction derives a market-clearing price, at which the quantity demanded balances that supplied, within some prespecied tolerance. This clearing price is simply the zero crossing of the aggregate demand function, which is the sum of the demands from all agents. Such a zero crossing will exist as long as the aggregate demand is suciently well-behaved, in particular, if it is continuous and decreasing in price. Gross substitutability, along with the classical conditions for existence of equilibrium, is sucient to ensure the existence of a clearing price at any stage of the bidding protocol. Walras calculates the zero crossing of the aggregate demand function via binary search. If aggregate demand is not well-behaved, the result of the auction may be a non-clearing price.
+
+When the current price is clearing with respect to the current bids, we say the market for that commodity is in equilibrium. We say that an agent is in equilibrium if its set of outstanding bids corresponds to the solution of its optimization problem at the going prices. If all the agents and commodity markets are in equilibrium, the allocation of goods dictated by the auction results is a competitive equilibrium.
+
+Figure 1 presents a schematic view of the walras bidding process. There is an auction for each distinct good, and for each agent, a link to all auctions in which it has an interest. There is also a \tote board"" of current prices, kept up-to-date by the various auctions. In the current implementation the tote board is a global data structure, however, since price change notications are explicitly transmitted to interested agents, this central information could be easily dispensed with.
+
+Each agent maintains an agenda of bid tasks, specifying the markets in which it must update its bid or compute a new one. In Figure 1, agent Ai has pending tasks to submit bids to auctions G1, G7, and G4. The bidding process is highly distributed, in that each agent need communicate directly only with the auctions for the goods of interest (those in the domain of its utility or production function, or for which it has nonzero endowments). Each of these interactions concerns only a single good; auctions never coordinate with each other. Agents need not negotiate directly with other agents, nor even know of each other's existence.
+
+As new bids are received at auction, the previously computed clearing price becomes obsolete. Periodically, each auction computes a new clearing price (if any new or updated bids have been received) and posts it on the tote board. When a price is updated, this may invalidate some of an agent's outstanding bids, since these were computed under the assumption that prices for remaining goods were xed at previous values. On nding out
+
+![](_page_6_Figure_1.jpeg)
+
+Figure 1: Walras's bidding process. Gj denotes the auction for the jth good, and Ai the ith trading agent. An item [j] on the task agenda denotes a pending task to compute and submit a bid for good j.
+
+about a price change, an agent augments its task agenda to include the potentially aected bids.
+
+At all times, walras maintains a vector of going prices and quantities that would be exchanged at those prices. While the agents have nonempty bid agendas or the auctions new bids, some or all goods may be in disequilibrium. When all auctions clear and all agendas are exhausted, however, the economy is in competitive equilibrium (up to some numeric tolerance). Using a recent result of Milgrom and Roberts (1991, Theorem 12), it can be shown that the condition sucient for convergence of tatonnement|gross substitutability| is also sucient for convergence of walras's price-adjustment process. The key observation is that in progressive equilibration (synchronous or not) the price at each time is based on some set of previous supply and demand bids.
+
+Although I have no precise results to this eect, the computational eort required for convergence to a xed tolerance seems highly sensitive to the number of goods, and much less so to the number of agents. Eydeland and Nagurney (1989) have analyzed in detail the convergence pattern of progressive equilibration algorithms related to walras for particular special cases, and found roughly linear growth in the number of agents. However, general conclusions are dicult to draw as the cost of computing the equilibrium for a particular computational economy may well depend on the interconnectedness and strength of interactions among agents and goods.
+
+#### 2.4 Market-Oriented Programming
+
+As described above, walras provides facilities for specifying market congurations and computing their competitive equilibrium. We can also view walras as a programming environment for decentralized resource allocation procedures. The environment provides constructs for specifying various sorts of agents and dening their interactions via their
+
+relations to common commodities. After setting up the initial conguration, the market can be run to determine the equilibrium level of activities and distribution of resources throughout the economy.
+
+To cast a distributed planning problem as a market, one needs to identify (1) the goods traded, (2) the agents trading, and (3) the agents' bidding behavior. These design steps are serially dependent, as the denition of what constitutes an exchangeable or producible commodity severely restricts the type of agents that it makes sense to include. And as mentioned above, sometimes we have to take as xed some real-world agents and goods presented as part of the problem specication. Once the conguration is determined, it might be advantageous to adjust some general parameters of the bidding protocol. Below, I illustrate the design task with a walras formulation of the multicommodity 
+ow problem.
+
+#### 2.5 Implementation
+
+Walras is implemented in Common Lisp and the Common Lisp Ob ject System (CLOS). The current version provides basic infrastructure for running computational economies, including the underlying bidding protocol and a library of CLOS classes implementing a variety of agent types. The ob ject-oriented implementation supports incremental development of market congurations. In particular, new types of agents can often be dened as slight variations on existing types, for example by modifying isolated features of the demand behavior, bidding strategies (e.g., management of task agenda), or bid format. Wang and Slagle (1993) present a detailed case for the use of ob ject-oriented languages to represent general-equilibrium models. Their proposed system is similar to walras with respect to formulation, although it is designed as an interface to conventional model-solving packages, rather than to support a decentralized computation of equilibrium directly.
+
+Although it models a distributed system, walras runs serially on a single processor. Distribution constraints on information and communication are enforced by programming and specication conventions rather than by fundamental mechanisms of the software environment. Asynchrony is simulated by randomizing the bidding sequences so that agents are called on unpredictably. Indeed, articial synchronization can lead to an undesirable oscillation in the clearing prices, as agents collectively overcompensate for imbalances in the preceding iteration.<sup>3</sup>
+
+The current experimental system runs transportation models of the sort described below, as well as some abstract exchange and production economies with parametrized utility and production functions (including the expository examples of Scarf (1984) and Shoven and Whalley (1984)). Customized tuning of the basic bidding protocol has not been necessary. In the process of getting walras to run on these examples, I have added some generically useful building blocks to the class libraries, but much more is required to ll out a comprehensive taxonomy of agents, bidding strategies, and auction policies.
+
+<sup>3.</sup> In some formal dynamic models (Huberman, 1988; Kephart, Hogg, & Huberman, 1989), homogeneous agents choose instantaneously optimal policies without accounting for others that are simultaneously making the same choice. Since the value of a particular choice varies inversely with the number of agents choosing it, this delayed feedback about the others' decisions leads to systematic errors, and hence oscillation. I have also observed this phenomenon empirically in a synchronized version of WALRAS. By eliminating the synchronization, agents tend to work on dierent markets at any one time, and hence do not suer as much from delayed feedback about prices.
+
+## 3. Example: Multicommodity Flow
+
+In a simple version of the multicommodity 
+ow problem, the task is to allocate a given set of cargo movements over a given transportation network. The transportation network is a collection of locations, with links (directed edges) identifying feasible transportation operations. Associated with each link is a specication of the cost of moving cargo along it. We suppose further that the cargo is homogeneous, and that amounts of cargo are arbitrarily divisible. A movement requirement associates an amount of cargo with an origin-destination pair. The planning problem is to determine the amount to transport on each link in order to move all the cargo at the minimum cost. This simplication ignores salient aspects of real transportation planning. For instance, this model is completely atemporal, and is hence more suitable for planning steady-state 
+ows than for planning dynamic movements.
+
+A distributed version of the problem would decentralize the responsibility for transporting separate cargo elements. For example, planning modules corresponding to geographically or organizationally disparate units might arrange the transportation for cargo within their respective spheres of authority. Or decision-making activity might be decomposed along hierarchical levels of abstraction, gross functional characteristics, or according to any other relevant distinction. This decentralization might result from real distribution of authority within a human organization, from inherent informational asymmetries and communication barriers, or from modularity imposed to facilitate software engineering.
+
+Consider, for example, the abstract transportation network of Figure 2, taken from Harker (1988). There are four locations, with directed links as shown. Consider two movement requirements. The rst is to transport cargo from location 1 to location 4, and the second in the reverse direction. Suppose we wish to decentralize authority so that separate agents (called shippers) decide how to allocate the cargo for each movement. The rst shipper decides how to split its cargo units between the paths 1 ! 2 ! 4 and 1 ! 2 ! 3 ! 4, while the second gures the split between paths 4 ! 2 ! 1 and 4 ! 2 ! 3 ! 1. Note that the latter paths for each shipper share a common resource: the link 2 ! 3.
+
+![](_page_8_Figure_5.jpeg)
+
+Figure 2: A simple network (from Harker (1988)).
+
+Because of their overlapping resource demands, the shippers' decisions appear to be necessarily intertwined. In a congested network, for example, the cost for transporting a unit of cargo over a link is increasing in the overall usage of the link. A shipper planning its cargo movements as if it were the only user on a network would thus underestimate its costs and potentially misallocate transportation resources.
+
+For the analysis of networks such as this, transportation researchers have developed equilibrium concepts describing the collective behavior of the shippers. In a system equilibrium, the overall transportation of cargo proceeds as if there were an omniscient central planner directing the movement of each shipment so as to minimize the total aggregate cost of meeting the requirements. In a user equilibrium, the overall allocation of cargo movements is such that each shipper minimizes its own total cost, sharing proportionately the cost of shared resources. The system equilibrium is thus a global optimum, while the user equilibrium corresponds to a composition of locally optimal solutions to subproblems. There are also some intermediate possibilities, corresponding to game-theoretic equilibrium concepts such as the Nash equilibrium, where each shipper behaves optimally given the transportation policies of the remaining shippers (Harker, 1986).<sup>4</sup>
+
+From our perspective as designer of the distributed planner, we seek a decentralization mechanism that will reach the system equilibrium, or come as close as possible given the distributed decision-making structure. In general, however, we cannot expect to derive a system equilibrium or globally optimal solution without central control. Limits on coordination and communication may prevent the distributed resource allocation from exploiting all opportunities and inhibiting agents from acting at cross purposes. But under certain conditions decision making can indeed be decentralized eectively via market mechanisms. General-equilibrium analysis can help us to recognize and take advantage of these opportunities.
+
+Note that for the multicommodity 
+ow problem, there is an eective distributed solution due to Gallager (1977). One of the market structures described below eectively mimics this solution, even though Gallager's algorithm was not formulated expressly in market terms. The point here is not to crack a hitherto unsolved distributed optimization problem (though that would be nice), but rather to illustrate a general approach on a simply described yet nontrivial task.
+
+## 4. WALRAS Transportation Market
+
+In this section, I present a series of three transportation market structures implemented in walras. The rst and simplest model comprises the basic transportation goods and shipper agents, which are augmented in the succeeding models to include other agent types. Comparative analysis of the three market structures reveals the qualitatively distinct economic and computational behaviors realized by alternate walras congurations.
+
+## 4.1 Basic Shipper Model
+
+The resource of primary interest in the multicommodity 
+ow problem is movement of cargo. Because the value and cost of a cargo movement depends on location, we designate as a distinct good the capacity on each origin-destination pair in the network (see Figure 2). To capture the cost or input required to move cargo, we dene another good denoting generic transportation resources. In a more concrete model, these might consist of vehicles, fuel, labor, or other factors contributing to transportation.
+
+<sup>4.</sup> In the Nash solution, shippers correctly anticipate the eect of their own cargo movements on the average cost on each link. The resulting equilibrium converges to the user equilibrium as the number of shippers increases and the eect of any individual's behavior on prices diminishes (Haurie & Marcotte, 1985).
+
+To decentralize the decision making, we identify each movement requirement with a distinct shipper agent. These shippers, or consumers, have an interest in moving various units of cargo between specied origins and destinations.
+
+The interconnectedness of agents and goods denes the market conguration. Figure 3 depicts the walras conguration for the basic shipper model corresponding to the example network of Figure 2. In this model there are two shippers, S1;4 and S4;1, where Si;j denotes a shipper with a requirement to move goods from origin i to destination j. Shippers connect to goods that might serve their ob jectives: in this case, movement along links that belong to some simple path from the shipper's origin to its destination. In the diagram, Gi;j denotes the good representing an amount of cargo moved over the link i ! j. G0 denotes the special transportation resource good. Notice that the only goods of interest to both shippers are G0, for which they both have endowments, and G2;3, transportation on the link serving both origin-destination pairs.
+
+![](_page_10_Figure_3.jpeg)
+
+Figure 3: Walras basic shipper market conguration for the example transportation network.
+
+The model we employ for transportation costs is based on a network with congestion, thus exhibiting diseconomies of scale. In other words, the marginal and average costs (in terms of transportation resources required) are both increasing in the level of service on a link. Using Harker's data, we take costs to be quadratic. The quadratic cost model is posed simply for concreteness, and does not represent any substantive claim about transportation networks. The important qualitative feature of this model (and the only one necessary for the example to work) is that it exhibits decreasing returns, a dening characteristic of congested networks. Note also that Harker's model is in terms of monetary costs, whereas we introduce an abstract input good.
+
+Let ci;j (x) denote the cost in transportation resources (good G0) required to transport <sup>x</sup> units of cargo on the link from i to j. The complete cost functions are:
+
+$$c\_{1,2}(x) = c\_{2,1}(x) = c\_{2,4}(x) = c\_{4,2}(x) = x^2 + 20x,$$
+
+$$c\_{3,1}(x) = c\_{2,3}(x) = c\_{3,4}(x) = 2x^2 + 5x.$$
+
+Finally, each shipper's ob jective is to transport 10 units of cargo from its origin to its destination.
+
+In the basic shipper model, we assume that the shippers pay proportionately (in units of G0) for the total cost on each link. This amounts to a policy of average cost pricing. We take the shipper's ob jective to be to ship as much as possible (up to its movement requirement) in the least costly manner. Notice that this ob jective is not expressible in terms of the consumer's optimization problem, equation (1), and hence this model is not technically an instance of the general-equilibrium framework.
+
+Given a network with prices on each link, the cheapest cargo movement corresponds to the shortest path in the graph, where distances are equated with prices. Thus, for a given link, a shipper would prefer to ship its entire quota on the link if it is on the shortest path, and zero otherwise. In the case of ties, it is indierent among the possible allocations. To bid on link i; j, the shipper can derive the threshold price that determines whether the link is on a shortest path by taking the dierence in shortest-path distance between the networks where link i; j's distance is set to zero and innity, respectively.
+
+In incrementally changing its bids, the shipper should also consider its outstanding bids and the current prices. The value of reserving capacity on a particular link is zero if it cannot get service on the other links on the path. Similarly, if it is already committed to shipping cargo on a parallel path, it does not gain by obtaining more capacity (even at a lower price) until it withdraws these other bids.<sup>5</sup> Therefore, the actual demand policy of a shipper is to spend its uncommitted income on the potential 
+ow increase (derived from maximumow calculations) it could obtain by purchasing capacity on the given link. It is willing to spend up to the threshold value of the link, as described above. This determines one point on its demand curve. If it has some unsatised requirement and uncommitted income it also indicates a willingness to pay a lower price for a greater amount of capacity. Boundary points such as this serve to bootstrap the economy; from the initial conditions it is typically the case that no individual link contributes to overall 
+ow between the shipper's origin and destination. Finally, the demand curve is completed by a smoothing operation on these points.
+
+Details of the boundary points and smoothing operation are rather arbitrary, and I make no claim that this particular bidding policy is ideal or guaranteed to work for a broad class of problems. This crude approach appears sucient for the present example and some similar ones, as long as the shippers' policies become more accurate as the prices approach equilibrium.
+
+Walras successfully computes the competitive equilibrium for this example, which in the case of the basic shipper model corresponds to a user equilibrium (UE) for the transportation network. In the UE for the example network, each shipper sends 2.86 units of cargo over the shared link 2 ! 3, and the remaining cargo over the direct link from location 2 to the destination. This allocation is inecient, as its total cost is 1143 resource
+
+<sup>5.</sup> Even if a shipper could simultaneously update its bids in all markets, it would not be a good idea to do so here. A competitive shipper would send all its cargo on the least costly path, neglecting the possibility that this demand may increase the prices so that it is no longer cheapest. The outstanding bids provide some sensitivity to this eect, as they are functions of price. But they cannot respond to changes in many prices at once, and thus the policy of updating all bids simultaneously can lead to perpetual oscillation. For example, in the network considered here, the unique competitive equilibrium has each shipper splitting its cargo between two dierent paths. Policies allocating all cargo to one path can never lead to this result, and hence convergence to competitive equilibrium depends on the incrementality of bidding behavior.
+
+units, which is somewhat greater than the global minimum-cost solution of 1136 units. In economic terms, the cause of the ineciency is an externality with respect to usage of the shared link. Because the shippers are eectively charged average cost|which in the case of decreasing returns is below marginal cost|the price they face does not re
+ect the full incremental social cost of additional usage of the resource. In eect, incremental usage of the resource by one agent is subsidized by the other. The steeper the decreasing returns, the more the agents have an incentive to overutilize the resource.<sup>6</sup> This is a simple example of the classic tragedy of the commons.
+
+The classical remedy to such problems is to internalize the externality by allocating ownership of the shared resource to some decision maker who has the proper incentives to use it eciently. We can implement such a solution in walras by augmenting the market structure with another type of agent.
+
+#### 4.2 Carrier Agents
+
+We extend the basic shipper model by introducing carriers, agents of type producer who have the capability to transport cargo units over specied links, given varying amounts of transportation resources. In the model described here, we associate one carrier with each available link. The production function for each carrier is simply the inverse of the cost function described above. To achieve a global movement of cargo, shippers obtain transportation services from carriers in exchange for the necessary transportation resources.
+
+Let Ci;j denote the carrier that transports cargo from location i to location j. Each carrier Ci;j is connected to the auction for Gi;j , its output good, along with G0|its input in the production process. Shipper agents are also connected to G0, as they are endowed with transportation resources to exchange for transportation services. Figure 4 depicts the walras market structure when carriers are included in the economy.
+
+![](_page_12_Figure_6.jpeg)
+
+Figure 4: Walras market conguration for the example transportation network in an economy with shippers and carriers.
+
+<sup>6.</sup> Average-cost pricing is perhaps the most common mechanism for allocating costs of a shared resource. Shenker (1991) points out problems with this scheme|with respect to both eciency and strategic behavior|in the context of allocating access to congested computer networks, a problem analogous to our transportation task.
+
+In the case of a decreasing returns technology, the producer's (carrier's) optimization problem has a unique solution. The optimal level of activity maximizes revenues minus costs, which occurs at the point where the output price equals marginal cost. Using this result, carriers submit supply bids specifying transportation services as a function of link prices (with resource price xed), and demand bids specifying required resources as a function of input prices (for activity level computed with output price xed).
+
+For example, consider carrier C1;2. At output price p1;2 and input price p0, the carrier's prot is
+
+p1;2y p0c1;2(y);
+
+where y is the level of service it chooses to supply. Given the cost function above, this expression is maximized at <sup>y</sup> = (p1;2 20p0)=2p0. Taking p0 as xed, the carrier submits a supply bid with y a function of p1;2. On the demand side, the carrier takes p1;2 as xed and submits a demand bid for enough good G0 to produce y, where y is treated as a function of p0.
+
+With the revised conguration and agent behaviors described, walras derives the system equilibrium (SE), that is, the cargo allocation minimizing overall transportation costs. The derived cargo movements are correct to within 10% in 36 bidding cycles, and to 1% in 72, where in each cycle every agent submits an average of one bid to one auction. The total cost (in units of G0), its division between shippers' expenditures and carriers' prots, and the equilibrium prices are presented in Table 1. Data for the UE solution of the basic shipper model are included for comparison. That the decentralized process produces a global optimum is perfectly consistent with competitive behavior|the carriers price their outputs at marginal cost, and the technologies are convex.
+
+| pricing | TC   | expense | prot | p1;2 | p2;1 | p2;3 | p2;4 | p3;1 | p3;4 | p4;2 |
+|---------|------|---------|-------|------|------|------|------|------|------|------|
+| MC (SE) | 1136 | 1514    | 378   | 40.0 | 35.7 | 22.1 | 35.7 | 13.6 | 13.6 | 40.0 |
+| AC (UE) | 1143 | 1143    | 0     | 30.0 | 27.1 | 16.3 | 27.1 | 10.7 | 10.7 | 30.0 |
+
+Table 1: Equilibria derived by walras for the transportation example. TC, MC, and AC stand for total, marginal, and average cost, respectively. TC = shipper expense carrier prot.
+
+As a simple check on the prices of Table 1, we can verify that p2;3 <sup>+</sup> p3;4 <sup>=</sup> p2;4 and p2;3 +p3;1 <sup>=</sup> p2;1. Both these relationships must hold in equilibrium (assuming all links have nonzero movements), else a shipper could reduce its cost by rerouting some cargo. Indeed, for a simple (small and symmetric) example such as this, it is easy to derive the equilibrium analytically using global equations such as these. But as argued above, it would be improper to exploit these relationships in the implementation of a truly distributed decision process.
+
+The lesson from this exercise is that we can achieve qualitatively distinct results by simple variations in the market conguration or agent policies. From our designers' perspective, we prefer the conguration that leads to the more transportation-ecient SE. Examination of Table 1 reveals that we can achieve this result by allowing the carriers to earn nonzero prots (economically speaking, these are really rents on the xed factor represented by the congested channel) and redistributing these prots to the shippers to cover their increased expenditures. (In the model of general equilibrium with production, consumers own shares in the producers' prots. This closes the loop so that all value is ultimately realized in consumption. We can specify these shares as part of the initial conguration, just like the endowment.) In this example, we distribute the prots evenly between the two shippers.
+
+#### 4.3 Arbitrageur Agents
+
+The preceding results demonstrate that walras can indeed implement a decentralized solution to the multicommodity 
+ow problem. But the market structure in Figure 4 is not as distributed as it might be, in that (1) all agents are connected to G0, and (2) shippers need to know about all links potentially serving their origin-destination pair. The rst of these concerns is easily remedied, as the choice of a single transportation resource good was completely arbitrary. For example, it would be straightforward to consider some collection of resources (e.g., fuel, labor, vehicles), and endow each shipper with only subsets of these.
+
+The second concern can also be addressed within walras. To do so, we introduce yet another sort of producer agent. These new agents, called arbitrageurs, act as specialized middlemen, monitoring isolated pieces of the network for ineciencies. An arbitrageur Ai;j;k produces transportation from i to k by buying capacity from i to j and j to k. Its production function simply species that the amount of its output good, Gi;k, is equal to the minimum of its two inputs, Gi;j and Gj;k . If pi;j <sup>+</sup> pj;k < pi;k, then its production is protable. Its bidding policy in walras is to increment its level of activity at each iteration by an amount proportional to its current protability (or decrement proportional to the loss). Such incremental behavior is necessary for all constant-returns producers in walras, as the prot maximization problem has no interior solution in the linear case.<sup>7</sup>
+
+To incorporate arbitrageurs into the transportation market structure, we rst create new goods corresponding to the transitive closure of the transportation network. In the example network, this leads to goods for every location pair. Next, we add an arbitrageur Ai;j;k for every triple of locations such that (1) i ! j is in the original network, and (2) there exists a path from j to k that does not traverse location i. These two conditions ensure that there is an arbitrageur Ai;j;k for every pair i; k connected by a path with more than one link, and eliminate some combinations that are either redundant or clearly unprotable.
+
+The revised market structure for the running example is depicted in Figure 5, with new goods and agents shaded. Some goods and agents that are inactive in the market solution have been omitted from the diagram to avoid clutter.
+
+Notice that in Figure 5 the connectivity of the shippers has been signicantly decreased, as the shippers now need be aware of only the good directly serving their origin-destination pair. This dramatically simplies their bidding problem, as they can avoid all analysis of the price network. The structure as a whole seems more distributed, as no agent is concerned with more than three goods.
+
+<sup>7.</sup> Without such a restriction on its bidding behavior, the competitive constant-returns producer would choose to operate at a level of innity or zero, depending on whether its activity were protable or unprotable at the going prices (at break-even, the producer is indierent among all levels). This would lead to perpetual oscillation, a problem noticed (and solved) by Paul Samuelson in 1949 when he considered the use of market mechanisms to solve linear programming problems (Samuelson, 1966).
+
+![](_page_15_Figure_1.jpeg)
+
+Figure 5: The revised walras market conguration with arbitrageurs.
+
+Despite the simplied shipper behavior, walras still converges to the SE, or optimal solution, in this conguration. Although the resulting allocation of resources is identical, a qualitative change in market structure here corresponds to a qualitative change in the degree of decentralization.
+
+In fact, the behavior of walras on the market conguration with arbitrageurs is virtually identical to a standard distributed algorithm (Gallager, 1977) for multicommodity ow (minimum delay on communication networks). In Gallager's algorithm, distributed modules expressly dierentiate the cost function to derive the marginal cost of increasing ow on a communication link. Flows are adjusted up or down so to equate the marginal costs along competing subpaths. This procedure provably converges to the optimal solution as long as the iterative adjustment parameter is suciently small. Similarly, convergence in walras for this model requires that the arbitrageurs do not adjust their activity levels too quickly in response to prot opportunities or loss situations.
+
+## 4.4 Summary
+
+The preceding sections have developed three progressively elaborate market congurations for the multicommodity 
+ow problem. Table 2 summarizes the size and shape of the con guration for a transportation network with V locations and E links, and M movement requirements. The basic shipper model results in the user equilibrium, while both of the augmented models produce the globally optimal system equilibrium. The carrier model requires E new producer agents to produce the superior result. The arbitrageur model adds O(V E) more producers and potentially some new goods as well, but reduces the number of goods of interest to any individual agent from O(E) to a small constant.
+
+These market models represent three qualitatively distinct points on the spectrum of potential congurations. Hybrid models are also conceivable, for example, where a partial set of arbitrageurs are included, perhaps arranged in a hierarchy or some other regular
+
+| model                   | goods      | shippers | carriers | arbitrageurs |
+|-------------------------|------------|----------|----------|--------------|
+| Basic shipper           | E + 1      | M [O(E)] |          |              |
+| : : : plus carriers     | E + 1      | M [O(E)] | E [2]    |              |
+| : : : plus arbitrageurs | O(V 2<br>) | M [2]    | E [2]    | O(V E) [3]   |
+
+Table 2: Numbers of goods and agents for the three market congurations. For each type of agent, the gure in brackets indicates the number of goods on which each individual bids.
+
+structure. I would expect such congurations to exhibit behaviors intermediate to the specic models studied here, with respect to both equilibrium produced and degree of decentralization.
+
+## 5. Limitations
+
+One serious limitation of walras is the assumption that agents act competitively. As mentioned above, this behavior is rational when there are many agents, each small with respect to the overall economy. However, when an individual agent is large enough to aect prices signicantly (i.e., possesses market power), it forfeits utility or prots by failing to take this into account. There are two approaches toward alleviating the restriction of perfect competition in a computational economy. First, we could simply adopt models of imperfect competition, perhaps based on specic forms of imperfection (e.g., spatial monopolistic competition) or on general game-theoretic models. Second, as architects we can congure the markets to promote competitive behavior. For example, decreasing the agent's grain size and enabling free entry of agents should enhance the degree of competition. Perhaps most interestingly, by controlling the agents' knowledge of the market structure (via standard information-encapsulation techniques), we can degrade their ability to exploit whatever market power they possess. Uncertainty has been shown to increase competitiveness among risk-averse agents in some formal bidding models (McAfee & McMillan, 1987), and in a computational environment we have substantial control over this uncertainty.
+
+The existence of competitive equilibria and ecient market allocations also depends critically on the assumption of nonincreasing returns to scale. Although congestion is a real factor in transportation networks, for example, for many modes of transport there are often other economies of scale and density that may lead to returns that are increasing overall (Harker, 1987). Note that strategic interactions, increasing returns, and other factors degrading the eectiveness of market mechanisms also inhibit decentralization in general, and so would need to be addressed directly in any approach.
+
+Having cast walras as a general environment for distributed planning, it is natural to ask how universal \market-oriented programming"" is as a computational paradigm. We can characterize the computational power of this model easily enough, by correspondence to the class of convex programming problems represented by economies satisfying the classical conditions. However, the more interesting issue is how well the conceptual framework of market
+
+equilibrium corresponds to the salient features of distributed planning problems. Although it is too early to make a denitive assertion about this, it seems clear that many planning tasks are fundamentally problems in resource allocation, and that the units of distribution often correspond well with units of agency. Economics has been the most prominent (and arguably the most successful) approach to modeling resource allocation with decentralized decision making, and it is reasonable to suppose that the concepts economists nd useful in the social context will prove similarly useful in our analogous computational context. Of course, just as economics is not ideal for analyzing all aspects of social interaction, we should expect that many issues in the organization of distributed planning will not be well accounted-for in this framework.
+
+Finally, the transportation network model presented here is a highly simplied version of the actual planning problem for this domain. A more realistic treatment would cover multiple commodity types, discrete movements, temporal extent, hierarchical network structure, and other critical features of the problem. Some of these may be captured by incremental extensions to the simple model, perhaps applying elaborations developed by the transportation science community. For example, many transportation models (including Harker's more elaborate formulation (Harker, 1987)) allow for variable supply and demand of the commodities and more complex shipper-carrier relationships. Concepts of spatial price equilibrium, based on markets for commodities in each location, seem to oer the most direct approach toward extending the transportation model within walras.
+
+### 6. Related Work
+
+#### 6.1 Distributed Optimization
+
+The techniques and models described here obviously build on much work in economics, transportation science, and operations research. The intended research contribution here is not to these elds, but rather in their application to the construction of a computational framework for decentralized decision making in general. Nevertheless, a few words are in order regarding the relation of the approach described here to extant methods for distributed optimization.
+
+Although the most elaborate walras model is essentially equivalent to existing algorithms for distributed multicommodity 
+ow (Bertsekas & Tsitsiklis, 1989; Gallager, 1977), the market framework oers an approach toward extensions beyond the strict scope of this particular optimization problem. For example, we could reduce the number of arbitrageurs, and while this would eliminate the guarantees of optimality, we might still have a reasonable expectation for graceful degradation. Similarly, we could realize conceptual extensions to the structure of the problem, such as distributed production of goods in addition to transportation, by adding new types of agents. For any given extension, there may very well be a customized distributed optimization algorithm that would outperform the computational market, but coming up with this algorithm would likely involve a completely new analysis. Nevertheless, it must be stated that speculations regarding the methodological advantages of the market-oriented framework are indeed just speculations at this point, and the relative exibility of applications programming in this paradigm must ultimately be demonstrated empirically.
+
+Finally, there is a large literature on decomposition methods for mathematical programming problems, which is perhaps the most common approach to distributed optimization. Many of these techniques can themselves be interpreted in economic terms, using the close relationship between prices and Lagrange multipliers. Again, the main distinction of the approach advocated here is conceptual. Rather than taking a global optimization problem and decentralizing it, our aim is to provide a framework for formulating a task in a distributed manner in the rst place.
+
+#### 6.2 Market-Based Computation
+
+The basic idea of applying economic mechanisms to coordinate distributed problem solving is not new to the AI community. Starting with the contract net (Davis & Smith, 1983), many have found the metaphor of markets appealing, and have built systems organized around markets or market-like mechanisms (Malone, Fikes, Grant, & Howard, 1988). The original contract net actually did not include any economic notions at all in its bidding mechanism, however, recent work by Sandholm (1993) has shown how cost and price can be incorporated in the contract net protocol to make it more like a true market mechanism. Miller and Drexler (Drexler & Miller, 1988; Miller & Drexler, 1988) have examined the market-based approach in depth, presenting some underlying rationale and addressing specic issues salient in a computational environment. Waldspurger, Hogg, Huberman, Kephart, and Stornetta (1992) investigated the concepts further by actually implementing market mechanisms to allocate computational resources in a distributed operating system. Researchers in distributed computing (Kurose & Simha, 1989) have also applied specialized algorithms based on economic analyses to specic resource-allocation problems arising in distributed systems. For further remarks on this line of work, see (Wellman, 1991).
+
+Recently, Kuwabara and Ishida (1992) have experimented with demand adjustment methods for a task very similar to the multicommodity 
+ow problem considered here. One signicant dierence is that their method would consider each path in the network as a separate resource, whereas the market structures here manipulate only links or location pairs. Although they do not cast their system in a competitive-equilibrium framework, the results are congruent with those obtained by walras.
+
+Walras is distinct from these prior eorts in two primary respects. First, it is constructed expressly in terms of concepts from general equilibrium theory, to promote mathematical analysis of the system and facilitate the application of economic principles to architectural design. Second, walras is designed to serve as a general programming environment for implementing computational economies. Although not developed specically to allocate computational resources, there is no reason these could not be included in market structures congured for particular application domains. Indeed, the idea of grounding measures of the value of computation in real-world values (e.g., cargo movements) follows naturally from the general-equilibrium view of interconnected markets, and is one of the more exciting prospects for future applications of walras to distributed problem-solving.
+
+Organizational theorists have studied markets as mechanisms for coordinating activities and allocating resources within rms. For example, Malone (1987) models information requirements, 
+exibility and other performance characteristics of a variety of market and non-market structures. In his terminology, walras implements a centralized market, where
+
+the allocation of each good is mediated by an auction. Using such models, we can determine whether this gross form of organization is advantageous, given information about the cost of communication, the 
+exibility of individual modules, and other related features. In this paper, we examine in greater detail the coordination process in computational markets, elaborating on the criteria for designing decentralized allocation mechanisms. We take the distributivity constraint as exogenously imposed; when the constraint is relaxable, both organizational and economic analysis illuminate the tradeos underlying the mechanism design problem.
+
+Finally, market-oriented programming shares with Shoham's agent-oriented programming (Shoham, 1993) the view that distributed problem-solving modules are best designed and understood as rational agents. The two approaches support dierent agent operations (transactions versus speech acts), adopt dierent rationality criteria, and emphasize different agent descriptors, but are ultimately aimed at achieving the same goal of specifying complex behavior in terms of agent concepts (e.g., belief, desire, capability) and social organizations. Combining individual rationality with laws of social interaction provides perhaps the most natural approach to generalizing Newell's \knowledge level analysis"" idea (Newell, 1982) to distributed computation.
+
+## 7. Conclusion
+
+In summary, walras represents a general approach to the construction and analysis of distributed planning systems, based on general equilibrium theory and competitive mechanisms. The approach works by deriving the competitive equilibrium corresponding to a particular conguration of agents and commodities, specied using walras's basic constructs for dening computational market structures. In a particular realization of this approach for a simplied form of distributed transportation planning, we see that qualitative dierences in economic structure (e.g., cost-sharing among shippers versus ownership of shared resources by prot-maximizing carriers) correspond to qualitatively distinct behaviors (user versus system equilibrium). This exercise demonstrates that careful design of the distributed decision structure according to economic principles can sometimes lead to eective decentralization, and that the behaviors of alternative systems can be meaningfully analyzed in economic terms.
+
+The contribution of the work reported here lies in the idea of market-oriented programming, an algorithm for distributed computation of competitive equilibria of computational economies, and an initial illustration of the approach on a simple problem in distributed resource allocation. A great deal of additional work will be required to understand the precise capabilities and limitations of the approach, and to establish a broader methodology for conguration of computational economies.
+
+## Acknowledgements
+
+This paper is a revised and extended version of (Wellman, 1992). I have beneted from discussions of computational economies with many colleagues, and would like to thank in particular Jon Doyle, Ed Durfee, Eli Gafni, Daphne Koller, Tracy Mullen, Anna Nagurney, Scott Shenker, Yoav Shoham, Hal Varian, Carl Waldspurger, Martin Weitzman, and the anonymous reviewers for helpful comments and suggestions.
+
+## References
+
+- Arrow, K. J., & Hurwicz, L. (Eds.). (1977). Studies in Resource Al location Processes. Cambridge University Press, Cambridge.
+- Bertsekas, D. P., & Tsitsiklis, J. N. (1989). Paral lel and Distributed Computation. Prentice-Hall, Englewood Clis, NJ.
+- Dafermos, S., & Nagurney, A. (1989). Supply and demand equilibration algorithms for a class of market equilibrium problems. Transportation Science, 23, 118{124.
+- Davis, R., & Smith, R. G. (1983). Negotiation as a metaphor for distributed problem solving. Articial Intel ligence, 20, 63{109.
+- Drexler, K. E., & Miller, M. S. (1988). Incentive engineering for computational resource management. In Huberman (1988), pp. 231{266.
+- Eydeland, A., & Nagurney, A. (1989). Progressive equilibration algorithms: The case of linear transaction costs. Computer Science in Economics and Management, 2, 197{ 219.
+- Gallager, R. G. (1977). A minimum delay routing algorithm using distributed computation. IEEE Transactions on Communications, 25, 73{85.
+- Harker, P. T. (1986). Alternative models of spatial competition. Operations Research, 34, 410{425.
+- Harker, P. T. (1987). Predicting Intercity Freight Flows. VNU Science Press, Utrecht, The Netherlands.
+- Harker, P. T. (1988). Multiple equilibrium behaviors on networks. Transportation Science, 22, 39{46.
+- Haurie, A., & Marcotte, P. (1985). On the relationship between Nash-Cournot and Wardrop equilibria. Networks, 15, 295{308.
+- Hicks, J. R. (1948). Value and Capital (second edition). Oxford University Press, London.
+- Hildenbrand, W., & Kirman, A. P. (1976). Introduction to Equilibrium Analysis: Variations on Themes by Edgeworth and Walras. North-Holland Publishing Company, Amsterdam.
+- Huberman, B. A. (Ed.). (1988). The Ecology of Computation. North-Holland.
+- Hurwicz, L. (1977). The design of resource allocation mechanisms. In Arrow and Hurwicz (1977), pp. 3{37. Reprinted from American Economic Review Papers and Proceedings, 1973.
+- Kephart, J. O., Hogg, T., & Huberman, B. A. (1989). Dynamics of computational ecosystems. Physical Review A, 40, 404{421.
+- Koopmans, T. C. (1970). Uses of prices. In Scientic Papers of Tjalling C. Koopmans, pp. 243{257. Springer-Verlag. Originally published in the Proceedings of the Conference on Operations Research in Production and Inventory Control, 1954.
+- Kurose, J. F., & Simha, R. (1989). A microeconomic approach to optimal resource allocation in distributed computer systems. IEEE Transactions on Computers, 38, 705{717.
+- Kuwabara, K., & Ishida, T. (1992). Symbiotic approach to distributed resource allocation: Toward coordinated balancing. In Pre-Proceedings of the 4th European Workshop on Modeling Autonomous Agents in a Multi-Agent World.
+- Lavoie, D., Baetjer, H., & Tulloh, W. (1991). Coping with complexity: OOPS and the economists' critique of central planning. Hotline on Object-Oriented Technology, 3 (1), 6{8.
+- Malone, T. W., Fikes, R. E., Grant, K. R., & Howard, M. T. (1988). Enterprise: A marketlike task scheduler for distributed computing environments. In Huberman (1988), pp. 177{205.
+- Malone, T. W. (1987). Modeling coordination in organizations and markets. Management Science, 33, 1317{1332.
+- McAfee, R. P., & McMillan, J. (1987). Auctions and bidding. Journal of Economic Literature, 25, 699{738.
+- Milgrom, P., & Roberts, J. (1991). Adaptive and sophisticated learning in normal form games. Games and Economic Behavior, 3, 82{100.
+- Miller, M. S., & Drexler, K. E. (1988). Markets and computation: Agoric open systems. In Huberman (1988), pp. 133{176.
+- Nagurney, A. (1993). Network Economics: A Variational Inequality Approach. Kluwer Academic Publishers.
+- Newell, A. (1982). The knowledge level. Articial Intel ligence, 18, 87{127.
+- Reiter, S. (1986). Information incentive and performance in the (new)2 welfare economics. In Reiter, S. (Ed.), Studies in Mathematical Economics. MAA Studies in Mathematics.
+- Samuelson, P. A. (1966). Market mechanisms and maximization. In Stiglitz, J. E. (Ed.), The Col lected Scientic Papers of Paul A. Samuelson, Vol. 1, pp. 415{492. MIT Press, Cambridge, MA. Originally appeared in RAND research memoranda, 1949.
+- Samuelson, P. A. (1974). Complementarity: An essay on the 40th anniversary of the Hicks-Allen revolution in demand theory. Journal of Economic Literature, 12, 1255{1289.
+- Sandholm, T. (1993). An implementation of the contract net protocol based on marginal cost calculations. In Proceedings of the National Conference on Articial Intel ligence, pp. 256{262 Washington, DC. AAAI.
+- Scarf, H. E. (1984). The computation of equilibrium prices. In Scarf, H. E., & Shoven, J. B. (Eds.), Applied General Equilibrium Analysis, pp. 1{49. Cambridge University Press, Cambridge.
+- Shenker, S. (1991). Congestion control in computer networks: An exercise in cost-sharing. Prepared for delivery at Annual Meeting of the American Political Science Association.
+- Shoham, Y. (1993). Agent-oriented programming. Articial Intel ligence, 60, 51{92.
+- Shoven, J. B., & Whalley, J. (1984). Applied general-equilibrium models of taxation and international trade: An introduction and survey. Journal of Economic Literature, 22, 1007{1051.
+- Shoven, J. B., & Whalley, J. (1992). Applying General Equilibrium. Cambridge University Press.
+- Varian, H. R. (1984). Microeconomic Analysis (second edition). W. W. Norton & Company, New York.
+- Waldspurger, C. A., Hogg, T., Huberman, B. A., Kephart, J. O., & Stornetta, S. (1992). Spawn: A distributed computational economy. IEEE Transactions on Software Engineering, 18, 103{117.
+- Wang, Z., & Slagle, J. (1993). An ob ject-oriented knowledge-based approach for formulating applied general equilibrium models. In Third International Workshop on Articial Intel ligence in Economics and Management Portland, OR.
+- Wellman, M. P. (1991). Review of Huberman (1988). Articial Intel ligence, 52, 205{218.
+- Wellman, M. P. (1992). A general-equilibrium approach to distributed transportation planning. In Proceedings of the National Conference on Articial Intel ligence, pp. 282{289 San Jose, CA. AAAI.","Market price systems constitute a well-understood class of mechanisms that
+under certain conditions provide effective decentralization of decision making
+with minimal communication overhead. In a market-oriented programming approach
+to distributed problem solving, we derive the activities and resource
+allocations for a set of computational agents by computing the competitive
+equilibrium of an artificial economy. WALRAS provides basic constructs for
+defining computational market structures, and protocols for deriving their
+corresponding price equilibria. In a particular realization of this approach
+for a form of multicommodity flow problem, we see that careful construction of
+the decision process according to economic principles can lead to efficient
+distributed resource allocation, and that the behavior of the system can be
+meaningfully analyzed in economic terms."
+"# An Empirical Analysis of Search in GSAT
+
+Ian P. Gent I.P.Gent@edinburgh.ac.uk
+
+Department of Articial Intel ligence, University of Edinburgh 80 South Bridge, Edinburgh EH1 1HN, United Kingdom
+
+# Toby Walsh walsh@loria.fr
+
+INRIA-Lorraine, 615, rue du Jardin Botanique, 54602 Vil lers-les-Nancy, France
+
+# Abstract
+
+We describe an extensive study of search in GSAT, an approximation procedure for propositional satisability. GSAT performs greedy hill-climbing on the number of satised clauses in a truth assignment. Our experiments provide a more complete picture of GSAT's search than previous accounts. We describe in detail the two phases of search: rapid hillclimbing followed by a long plateau search. We demonstrate that when applied to randomly generated 3-SAT problems, there is a very simple scaling with problem size for both the mean number of satised clauses and the mean branching rate. Our results allow us to make detailed numerical conjectures about the length of the hill-climbing phase, the average gradient of this phase, and to conjecture that both the average score and average branching rate decay exponentially during plateau search. We end by showing how these results can be used to direct future theoretical analysis. This work provides a case study of how computer experiments can be used to improve understanding of the theoretical properties of algorithms.
+
+# 1. Introduction
+
+Mathematicians are increasingly recognizing the usefulness of experiments with computers to help advance mathematical theory. It is surprising therefore that one area of mathematics which has benetted little from empirical results is the theory of algorithms, especially those used in AI. Since the ob jects of this theory are abstract descriptions of computer programs, we should in principle be able to reason about programs entirely deductively. However, such theoretical analysis is often too complex for our current mathematical tools. Where theoretical analysis is practical, it is often limited to (unrealistically) simple cases. For example, results presented in (Koutsoupias & Papadimitriou, 1992) for the greedy algorithm for satisability do not apply to interesting and hard region of problems as described in x3. In addition, actual behaviour on real problems is sometimes quite dierent to worst and average case analyses. We therefore support the calls of McGeoch (McGeoch, 1986), Hooker (Hooker, 1993) and others for the development of an empirical science of algorithms. In such a science, experiments as well as theory are used to advance our understanding of the properties of algorithms. One of the aims of this paper is to demonstrate the benets of such an empirical approach. We will present some surprising experimental results and demonstrate how such results can direct future eorts for a theoretical analysis.
+
+The algorithm studied in this paper is GSAT, a randomized hill-climbing procedure for propositional satisability (or SAT) (Selman, Levesque, & Mitchell, 1992; Selman & Kautz, 1993a). Propositional satisability is the problem of deciding if there is an assignment for the variables in a propositional formula that makes the formula true. Recently, there has been considerable interest in GSAT as it appears to be able to solve large and dicult satis ability problems beyond the range of conventional procedures like Davis-Putnam (Selman et al., 1992). We believe that the results we give here will actually apply to a larger family of procedures for satisability called GenSAT (Gent & Walsh, 1993). Understanding such procedures more fully is of considerable practical interest since SAT is, in many ways, the archetypical (and intractable) NP-hard problem. In addition, many AI problems can be encoded quite naturally in SAT (eg. constraint satisfaction, diagnosis and vision interpretation, refutational theorem proving, planning).
+
+This paper is structured as follows. In x2 we introduce GSAT, the algorithm studied in the rest of the paper. In x3 we dene and motivate the choice of problems used in our experiments. The experiments themselves are described in x4. These experiments provide a more complete picture of GSAT's search than previous informal accounts. The results of these experiments are analysed more closely in x5 using some powerful statistical tools. This analysis allow us to make various experimentally veriable conjectures about GSAT's search. For example, we are able to conjecture: the length of GSAT's initial hill-climbing phase; the average gradient of this phase; the simple scaling of various important features like the score (on which hill-climbing is performed) and the branching rate. In x6 we suggest how such results can be used to direct future theoretical analysis. Finally, in x7 we describe related work and end with some brief conclusions in x8.
+
+## 2. GSAT
+
+GSAT is a random greedy hill-climbing procedure. GSAT deals with formulae in conjunctive normal form (CNF); a formula, is in CNF i it is a conjunction of clauses, where a clause is a disjunction of literals. GSAT starts with a randomly generated truth assignment, then hill-climbs by \
+ipping"" the variable assignment which gives the largest increase in the number of clauses satised (called the \score"" from now on). Given the choice between several equally good 
+ips, GSAT picks one at random. If no 
+ip can increase the score, then a variable is 
+ipped which does not change the score or (failing that) which decreases the score the least. Thus GSAT starts in a random part of the search space and searches for a global solution using only local information. Despite its simplicity, this procedure has been shown to give good performance on hard satisability problems (Selman et al., 1992).
+
+```
+procedure GSAT()
+   for i := 1 to Max-tries
+      T := random truth assignment
+      for j := 1 to Max-
+ips
+          if T satises  then return T
+          else Poss-
+ips := set of vars which increase satisability most
+               V := a random element of Poss-
+ips
+               T := T with V's truth assignment 
+ipped
+      end
+   end
+   return \no satisfying assignment found""
+```
+In (Gent & Walsh, 1993) we describe a large number of experiments which suggest that neither greediness not randomness is important for the performance of this procedure. These experiments also suggest various other conjectures. For instance, for random 3-SAT problems (see x3) the log of the runtime appears to scale with a less than linear dependency on the problem size. Conjectures such as these could, as we noted in the introduction, be very protably used to direct future eorts to analyse GSAT theoretically. Indeed, we believe that the experiments reported here suggest various conjectures which would be useful in a proof of the relationship between runtime and problem size (see x6 for more details)
+
+### 3. Problem Space
+
+To be able to perform experiments on an algorithm, you need a source of problems on which to run the algorithm. Ideally the problems should come from a probability distribution with some well-dened properties, contain a few simple parameters and be representative of problems which occur in real situations. Unfortunately, it is often dicult to meet all these criteria. In practice, one is usually forced to accept either problems from a well-dened distribution with a few simple parameters or a benchmark set of real problems, necessarily from some unknown distribution. In these experiments we adopt the former approach and use CNF formulae randomly generated according to the random k-SAT model.
+
+Problems in random k-SAT with N variables and L clauses are generated as follows: a random subset of size k of the N variables is selected for each clause, and each variable is made positive or negative with probability <sup>1</sup> 2 . For random 3-SAT, there is a phase transition from satisable to unsatisable when L is approximately 4.3N (Mitchell, Selman, & Levesque, 1992; Larrabee & Tsuji, 1992; Crawford & Auton, 1993). At lower L, most problems generated are under-constrained and are thus satisable; at higher L, most problems generated are over-constrained and are thus unsatisable. As with many NP-complete problems, problems in the phase transition are typically much more dicult to solve than problems away from the transition (Cheeseman, Kanefsky, & Taylor, 1991). The region L=4.3N is thus generally considered to be a good source of hard SAT problems and has been the focus of much recent experimental eort.
+
+# 4. GSAT's search
+
+When GSAT was rst introduced, it was noted that search in each try is divided into two phases. In the rst phase of a try, each 
+ip increases the score. However, this phase is relatively short and is followed by a second phase in which most 
+ips do not increase the score, but are instead sideways moves which leave the same number of clauses satised. This phase is a search of a \plateau"" for the occasional 
+ip that can increase the score.<sup>1</sup> One of the aims of this paper is to improve upon such informal observations by making quantitative measurements of GSAT's search, and by using these measurements to make several experimentally testable predictions.
+
+<sup>1.</sup> Informal observations to this eect were made by Bart Selman during the presentation of (Selman et al., 1992) at AAAI-92. These observations were enlarged upon in (Gent & Walsh, 1992).
+
+#### Gent & Walsh
+
+In our experiments, we followed three methodological principles from (McGeoch, 1986). First, we performed experiments with large problem sizes and many repetitions, to reduce variance and allow for emergent properties. Second, we sought good views of the data. That is, we looked for features of performance which are meaningful and which are as predictable as possible. Third, we analysed our results closely. Suitable analysis of data may show features which are not clear from a simple presentation. In the rest of this paper we show how these principles enabled us to make very detailed conjectures about GSAT's search.
+
+Many features of GSAT's search space can be graphically illustrated by plotting how they vary during a try. The most obvious feature to plot is the score, the number of satised clauses. In our quest for a good view of GSAT's search space, we also decided to plot \poss ips"" at each 
+ip: that is, the number of equally good 
+ips between which GSAT randomly picks. This is an interesting measure since it indicates the branching rate of GSAT's search space.
+
+We begin with one try of GSAT on a 500 variable random 3-SAT problem in the dicult region of L = 4.3N (Figure 1a). Although there is considerable variation between tries, this graph illustrates features common to all tries. Both score (in Figure 1a) and possips (in Figure 1b) are plotted as percentages of their maximal values, that is L and N respectively. The percentage score starts just above 87.5%, which might seem surprisingly high. Theoretically, however, we expect a random truth assignment in k-SAT to satisfy 2k1 2<sup>k</sup> of all clauses (in this instance, <sup>7</sup> 8 ). As expected from the earlier informal description, the score climbs rapidly at rst, and then 
+attens o as we mount the plateau. The graph is discrete since positive moves increase the score by a xed amount, but some of this discreteness is lost due to the small scale. To illustrate the discreteness, in Figure 1b we plot the change in the number of satised clauses made by each 
+ip (as its exact value, unscaled). Note that the x-axis for both plots in Figure 1b is the same.
+
+![](_page_3_Figure_4.jpeg)
+
+Figure 1: GSAT's behaviour during one try, N = 500, L = 2150, rst 250 
+ips
+
+The behaviour of possips is considerably more complicated than that of the score. It is easiest rst to consider possips once on the plateau. The start of plateau search, after 115 
+ips, coincides with a very large increase in possips, corresponding to a change from the region where a small number of 
+ips can increase the score by 1 to a region where a large number of 
+ips can be made which leave the score unchanged. Once on the plateau, there are several sharp dips in possips. These correspond to 
+ips where an increase by 1 in the score was eected, as can be seen from Figure 1b. It seems that if you can increase the score on the plateau, you only have a very small number of ways to do it. Also, the dominance of 
+ips which make no change in score graphically illustrates the need for such \sideways"" 
+ips, a need that has been noted before (Selman et al., 1992; Gent & Walsh, 1993).
+
+Perhaps the most fascinating feature is the initial behaviour of possips. There are four well dened wedges starting at 5, 16, 26, and 57 
+ips, with occasional sharp dips. These wedges demonstrate behaviour analogous to the that of possips on the plateau. The plateau spans the region where 
+ips typically do not change the score: we call this region H0 since hill-climbing typically makes zero change to the score. The last wedge spans the region H1 where hill-climbing typically increases the score by 1, as can be seen very clearly from Figure 1b. Again Figure 1b shows that the next three wedges (reading right to left) span regions H2, H3, and H4. As with the transition onto the plateau, the transition between each region is marked by a sharp increase in possips. Dips in the wedges represent unusual 
+ips which increase the score by more than the characteristic value for that region, just as the dips in possips on the plateau represent 
+ips where an increase in score was possible. This exact correlation can be seen clearly in Figure 1b. Note that in this experiment, in no region Hj did a change in score of j + 2 occur, and that there was no change in score of 1 at all. In addition, each wedge in possips appears to decay close to linearly. This is explained by the facts that once a variable is 
+ipped it no longer appears in possips (
+ipping it back would decrease score), that most of the variables in possips can be 
+ipped independently of each other, and that new variables are rarely added to possips as a consequence of an earlier 
+ip. On the plateau, however, when a variable is 
+ipped which does not change the score, it remains in possips since 
+ipping it back also does not change the score.
+
+To determine if this behaviour is typical, we generated 500 random 3-SAT problems with N=500 and L=4.3N, and ran 10 tries of GSAT on each problem. Figure 2a shows the mean percentage score2 while Figure 2b presents the mean percentage possips together with the mean change in score at each 
+ip. (The small discreteness in this gure is due to the discreteness of Postscript's plotting.)
+
+The average percentage score is very similar to the behaviour on the individual run of Figure 1, naturally being somewhat smoother. The graph of average possips seems quite dierent, but it is to be expected that you will neither observe the sharply dened dips in possips from Figure 1b, nor the very sharply dened start to the wedges, since these happen at varying times. It is remarkable that the wedges are consistent enough to be visible when averaged over 5,000 tries; the smoothing in the wedges and the start of the plateau is caused by the regions not starting at exactly the same time in each try.
+
+Figure 2 does not distinguish between satisable and unsatisable problems. There is no current technique for determining the satisability of 500 variable 3-SAT problems in feasible time. From instances we have been able to test, we do not believe that large
+
+<sup>2.</sup> In this paper we assign a score of 100% to 
+ips which were not performed because a satisfying truth assignment had already been found.
+
+![](_page_5_Figure_1.jpeg)
+
+Figure 2: Mean GSAT behaviour, N = 500, L = 4.3N, rst 250 
+ips
+
+dierences from Figure 2 will be seen when it is possible to plot satisable and unsatisable problems separately, but this remains an interesting topic to investigate in the future.
+
+Experiments with other values of N with the same ratio of clauses to variables demonstrated qualitatively similar behaviour. More careful analysis shows the remarkable fact that not only is the behaviour qualitatively similar, but quantitatively similar, with a simple linear dependency on N. If graphs similar to Figure 2 are plotted for each N with the x-axis scaled by N, behaviour is almost identical. To illustrate this, Figure 3 shows the mean percentage score, percentage possips, and change in score, for N = 500, 750, and 1000, for L = 4.3N and for the rst 0.5N 
+ips (250 
+ips at N = 500). Both Figure 3a and Figure 3b demonstrate the closeness of the scaling, to the extent that they may appear to contain just one thick line. In Figure 3b there is a slight tendency for the dierent regions of hill-climbing to become better dened with increasing N.
+
+The gures we have presented only reach a very early stage of plateau search. To investigate further along the plateau, we performed experiments with 100, 200, 300, 400, and 500 variables from 0 to 2.5N 
+ips.3 In Figure 4a shows the mean percentage score in each case, while Figure 4b shows the mean percentage possips, magnied on the y-axis for clarity. Both these gures demonstrate the closeness of the scaling on the plateau. In Figure 4b the graphs are not quite so close together as in Figure 4a. The phases of hillclimbing become much better dened with increasing N. During plateau search, although separate lines are distinguishable, the dierence is always considerably less than 1% of the total number of variables.
+
+The problems used in these experiments (random 3-SAT with L=4.3N) are believed to be unusually hard and are satisable with probability approximately <sup>1</sup> 2 . Neither of these facts appears to be relevant to the scaling of GSAT's search. To check this we performed a similar range of experiments with a ratio of clauses to variables of 6. Although almost all such problems are unsatisable, we observed exactly the same scaling behaviour. The score
+
+<sup>3.</sup> At 100 variables, 2.5N 
+ips is close to the optimal value for Maxips. However, experiments have suggested that Maxips may need to vary quadratically for larger N (Gent & Walsh, 1993).
+
+![](_page_6_Figure_1.jpeg)
+
+Figure 3: Scaling of mean GSAT behaviour, N = 500, 750, 1000, rst 0.5N 
+ips
+
+![](_page_6_Figure_3.jpeg)
+
+Figure 4: Scaling of mean GSAT behaviour, N = 100, 200, 300, 400, 500
+
+does not reach such a high value as in Figure 4a, as is to be expected, but nevertheless shows the same linear scaling. On the plateau, the mean value of possips is lower than before. We again observed this behaviour for L = 3N, where almost all problems are satisable. The score approaches 100% faster than before, and a higher value of possips is reached on the plateau, but the decay in the value of possips seen in Figure 4b does not seem to be present.
+
+To summarise, we have shown that GSAT's hill-climbing goes through several distinct phases, and that the average behaviour of certain important features scale in linear fashion with N. These results provide a considerable advance on previous informal descriptions of GSAT's search.
+
+### 5. Numerical Conjectures
+
+In this section, we will show that detailed numerical conjectures can be made if the data presented graphically in x4 is analysed numerically. We divide our analysis into two parts: rst we deal with the plateau search, where behaviour is relatively simple, then we analyse the hill-climbing search.
+
+On the plateau, both average score and possips seem to decay exponentially with a simple linear dependency on problem size. To test this, we performed regression analysis on our experimental data, using the models
+
+$$S(x) \quad = \quad \text{N} \cdot (B - C \cdot e^{-\frac{x}{A \cdot \text{N}}}) \tag{1}$$
+
+$$P(x) \quad = \text{ N} \cdot (E + F \cdot e^{-\frac{x}{D \cdot N}}) \tag{2}$$
+
+where <sup>x</sup> represents the number of 
+ips, S(x) the average score at 
+ip <sup>x</sup> and P (x) the average number of possible 
+ips. To determine GSAT's behaviour just on the plateau, we analysed data on mean score, starting from 0.4N 
+ips, a time when plateau search always appears to have started (see x5). Our experimental data tted the model very well. Detailed results for N = 500 are given in Table 1 to three signicant gures. The values of A, B, and C change only slightly with N, providing further evidence for the scaling of GSAT's behaviour. For L = 3N the asymptotic mean percentage score is very close to 100% of clauses being satised, while for L = 4.3N it is approximately 99.3% of clauses and for L = 6N it is approximately 98.2% of clauses. A good t was also found for mean possips behaviour (see Table 2 for N = 500), except for L = 3N, where the mean value of possips on the plateau may be constant. It seems that for L = 4.3N the asymptotic value of possips is about 10% of N and that for 6 it is about 5% of N.
+
+It is important to note that the behaviour we analysed was for mean behaviour over both satisable and unsatisable problems. It is likely that individual problems will exhibit similar behaviour with dierent asymptotes, but we do not expect even satisable problems to yield a mean score of 100% asymptotically. Note that as N increases a small error in percentage terms may correspond to a large error in the actual score. As a result, our predictions of asymptotic score may be inaccurate for large N, or for very large numbers of ips. Further experimentation is necessary to examine these issues in detail.
+
+| L/N | N   | A     | B     | C      | R2    |
+|-----|-----|-------|-------|--------|-------|
+| 3   | 500 | 0.511 | 2.997 | 0.0428 | 0.995 |
+| 4.3 | 500 | 0.566 | 4.27  | 0.0772 | 0.995 |
+| 6   | 500 | 0.492 | 5.89  | 0.112  | 0.993 |
+
+Table 1: Regression results for average score of GSAT. 4
+
+<sup>4.</sup> The value of <sup>R</sup><sup>2</sup> is a number in the interval [0; 1] indicating how well the variance in data is explained by the regression formula. 1 R2 is the ratio between variance of the data from its predicted value, and the variance of the data from the mean of all the data. A value of <sup>R</sup><sup>2</sup> close to 1 indicates that the regression formula ts the data very well.
+
+| L/N | N   | D     | E      | F      | R2    |
+|-----|-----|-------|--------|--------|-------|
+| 4.3 | 500 | 0.838 | 0.100  | 0.0348 | 0.996 |
+| 6   | 500 | 0.789 | 0.0502 | 0.0373 | 0.999 |
+
+Table 2: Regression results on average possips of GSAT.
+
+We have also analysed GSAT's behaviour during its hill-climbing phase. Figure 1b shows regions where most 
+ips increase the score by 4, then by 3, then by 2, then by 1. Analysis of our data suggested that each phase lasts roughly twice the length of the previous one. This motivates the following conjectures: GSAT moves through a sequence of regions Hj for j <sup>=</sup> :::; 3; 2; 1 in which the ma jority of 
+ips increase the score by j, and where the length of each region Hj is proportional to 2j (except for the region H0 which represents plateau search).
+
+To investigate this conjecture, we analysed 50 tries each on 20 dierent problems for random 3-SAT problems at N=500 and L=4.3N. We very rarely observe 
+ips in Hj that increase the score by less than j, and so dene Hj as the region between the rst 
+ip which increases the score by exactly j and the rst 
+ip which increases the score by less than j (unless the latter actually appears before the former, in which case Hj is empty). One simple test of our conjecture is to compare the total time spent in Hj with the total time up to the end of Hj ; we predict that this ratio will be <sup>1</sup> 2 . For j = 1 to 4 the mean and standard deviations of this ratio, and the length of each region are shown in Table 3.5 This data supports our conjecture although as j increases each region is slightly longer than predicted. The total length of hill-climbing at N=500 is 0.22N 
+ips, while at N=100 it is 0.23N. This is consistent with the scaling behaviour observed in x4.
+
+| Region       | mean ratio | s.d.   | mean length | s.d. |
+|--------------|------------|--------|-------------|------|
+| All climbing |            |        | 112         | 7.59 |
+| H<br>1       | 0.486      | 0.0510 | 54.7        | 7.69 |
+| H<br>2       | 0.513      | 0.0672 | 29.5        | 5.12 |
+| H<br>3       | 0.564      | 0.0959 | 15.7        | 3.61 |
+| H<br>4       | 0.574      | 0.0161 | 7.00        | 2.48 |
+
+Table 3: Comparative and Absolute Lengths of hill-climbing phases
+
+Our conjecture has an appealing corollary. Namely, that if there are i non-empty hillclimbing regions, the average change in score per 
+ip during hill-climbing is:
+
+$$\frac{1}{2} \cdot 1 + \frac{1}{4} \cdot 2 + \frac{1}{8} \cdot 3 + \frac{1}{16} \cdot 4 + \dots + \frac{1}{2^i} \cdot i \quad \approx \quad 2. \tag{3}$$
+
+It follows from this that mean gradient of the entire hill-climbing phase is approximately 2. At N=500, we observed a mean ratio of change in score per 
+ip during hill-climbing of 1.94
+
+<sup>5.</sup> The data for \All climbing"" is the length to the start of H0.
+
+with a standard deviation of 0.1. At N=100, the ratio is 1.95 with a standard deviation of 0.2.
+
+The model presented above ignores 
+ips in Hj which increase the score by more than j. Such 
+ips were seen in Figure 1b in regions H3 to H1. In our experiment 9.8% of 
+ips in H1 were of size 2 and 6.3% of 
+ips in H2 were of size 3. However, 
+ips of size j + 2 were very rare, forming only about 0.02% of all 
+ips in H1 and H2. We conjectured that an exponential decay similar to that in H0 occurs in each Hj . That is, we conjecture that the average change in number of satised clauses from 
+ip <sup>x</sup> to 
+ip <sup>x</sup> + 1 in Hj is given by:
+
+$$j + E\_j \cdot e^{-\frac{x}{D\_j \cdot N}} \tag{4}$$
+
+This might correspond to a model of GSAT's search in which there are a certain number of 
+ips of size j + 1 in each region Hj , and the probability of making a j + 1 
+ip is merely dependent on the number of such 
+ips left; the rest of the time, GSAT is obliged to make a 
+ip of size j. Our data from 1000 tries tted this model well, giving values of R2 of 96.8% for H1 and 97.5% for H2. The regression gave estimates for the parameters of: D1 = 0:045, E1 = 0:25, D2 = 0:025, E2 = 0:15. Not surprisingly, since the region H3 is very short, data was too noisy to obtain a better t with the model (4) than with one of linear decay. These results support our conjecture, but more experiments on larger problems are needed to lengthen the region Hj for j 3.
+
+### 6. Theoretical Conjectures
+
+Empirical results like those given in x5 can be used to direct eorts to analyse algorithms theoretically. For example, consider the plateau region of GSAT's search. If the model (1) applies also to successful tries, the asymptotic score is L, giving
+
+$$S(x) \quad = \quad \mathcal{L} - C \cdot \mathcal{N} \cdot e^{-\frac{x}{\mathcal{A} \cdot \mathcal{N}}}$$
+
+Dierentiating with respect to x we get,
+
+$$\frac{\mathrm{d}S(x)}{\mathrm{d}x} = \frac{C}{A} \cdot e^{-\frac{x}{a \cdot \mathrm{N}}} = \frac{\mathrm{L} - S(x)}{A \cdot \mathrm{N}}$$
+
+The gradient is a good approximation for Dx, the average size of a 
+ip at x. Hence,
+
+$$D\_x \quad = \quad \frac{\mathcal{L} - S(x)}{A \cdot \mathcal{N}}$$
+
+Our experiments suggest that downward 
+ips and those of more than +1 are very rare on the plateau. Thus, a good (rst order) approximation for Dx is as follows, where prob(Dx <sup>=</sup> j) is the probability that a 
+ip at <sup>x</sup> is of size j.
+
+$$D\_x \quad = \sum\_{j=-\mathcal{L}}^{\mathcal{L}} j \cdot prob(D\_x = j) \quad = \quad prob(D\_x = 1).$$
+
+Hence,
+
+$$\operatorname{pr}ob(\boldsymbol{D}\_x = 1) \quad = \quad \frac{\mathbf{L} - S(x)}{A \cdot \mathbf{N}}$$
+
+That is, on the plateau the probability of making a 
+ip of size +1 may be directly proportional to L S(x), the average number of clauses remaining unsatised and inversely proportional N, to the number of variables. A similar analysis and result can be given for prob(Dx <sup>=</sup> j +1) in the hill-climbing region Hj , which would explain the model (4) proposed in x5.
+
+If our theoretical conjecture is correct, it can be used to show that the mean number of 
+ips on successful tries will be proportional to N ln N. Further investigation, both experimental and theoretical, will be needed to determine the accuracy of this prediction. Our conjectures in this section should be seen as conjectures as to what a formal theory of GSAT's search might look like, and should be useful in determining results such as average runtime and the optimal setting for a parameter like Maxips. In addition, if we can develop a model of GSAT's search in which prob(Dx <sup>=</sup> j) is related to the number of unsatised clauses and N as in the above equation, then the experimentally observed exponential behaviour and linear scaling of the score will follow immediately.
+
+### 7. Related Work
+
+Prior to the introduction of GSAT in (Selman et al., 1992), a closely related set of procedures were studied by Gu (Gu, 1992). These procedures have a dierent control structure to GSAT which allows them, for instance, to make sideways moves when upwards moves are possible. This makes it dicult to compare our results directly. Nevertheless, we are condent that the approach taken here would apply equally well to these procedures, and that similar results could be expected. Another \greedy algorithm for satisability"" has been analysed in (Koutsoupias & Papadimitriou, 1992), but our results are not directly applicable to it because, unlike GSAT, it disallows sideways 
+ips.
+
+In (Gent & Walsh, 1993) we describe an empirical study of GenSAT, a family of procedures related to GSAT. This study focuses on the importance of randomness, greediness and hill-climbing for the eectiveness of these procedures. In addition, we determine how performance depends on parameters like Max-tries and Maxips. We showed also that certain variants of GenSAT could outperform GSAT on random problems. It would be very interesting to perform a similar analysis to that given here of these closely related procedures.
+
+GSAT is closely related to simulated annealing (van Laarhoven & Aarts, 1987) and the Metropolis algorithm, which both use greedy local search with a randomised method of allowing non-optimal 
+ips. Theoretical work on these algorithms has not applied to SAT problems, for example (Jerrum, 1992; Jerrum & Sorkin, 1993), while experimental studies of the relationship between GSAT and simulated annealing have as yet only reached tentative conclusions (Selman & Kautz, 1993b; Spears, 1993).
+
+Procedures like GSAT have also been successfully applied to constraint satisfaction problems other than satisability. For example, (Minton, Johnston, Philips, & Laird, 1990) proposed a greedy local search procedure which performed well scheduling observations on the Hubble Space Telescope, and other constraint problems like the million-queens, and 3-colourability. It would be very interesting to see how the results given here map across to these new problem domains.
+
+# 8. Conclusions
+
+We have described an empirical study of search in GSAT, an approximation procedure for satisability. We performed detailed analysis of the two basic phases of GSAT's search, an initial period of fast hill-climbing followed by a longer period of plateau search. We have shown that the hill-climbing phases can be broken down further into a number of distinct phases each corresponding to progressively slower climbing, and each phase lasting twice as long as the last. We have also shown that, in certain well dened problem classes, the average behaviour of certain important features of GSAT's search (the average score and the average branching rate at a given point) scale in a remarkably simple way with the problem size We have also demonstrated that the behaviour of these features can be modelled very well by simple exponential decay, both in the plateau and in the hill-climbing phase. Finally, we used our experiments to conjecture various properties (eg. the probability of making a 
+ip of a certain size) that will be useful in a theoretical analysis of GSAT. These results illustrate how carefully performed experiments can be used to guide theory, and how computers have an increasingly important r^ole to play in the analysis of algorithms.
+
+## Acknowledgements
+
+This research is supported by a SERC Postdoctoral Fellowship to the rst author and a HCM Postdoctoral fellowship to the second. We thank Alan Bundy, Ian Green, and the members of the Mathematical Reasoning Group for their constructive comments and for the quadrillion CPU cycles donated to these and other experiments from SERC grant GR/H/23610. We also thank Andrew Bremner, Judith Underwood, and the reviewers of this journal for other help.
+
+# References
+
+- Cheeseman, P., Kanefsky, B., & Taylor, W. (1991). Where the really hard problems are. In Proceedings of the 12th IJCAI, pp. 163{169. International Joint Conference on Articial Intelligence.
+- Crawford, J., & Auton, L. (1993). Experimental results on the crossover point in satis ability problems. In Proceedings of the Eleventh National Conference on Articial Intel ligence, pp. 21{27. AAAI Press/The MIT Press.
+- Gent, I. P., & Walsh, T. (1993). Towards an Understanding of Hill-climbing Procedures for SAT. In Proceedings of the Eleventh National Conference on Articial Intel ligence, pp. 28{33. AAAI Press/The MIT Press.
+- Gent, I. P., & Walsh, T. (1992). The enigma of SAT hill-climbing procedures. Research paper 605, Dept. of Articial Intelligence, University of Edinburgh.
+- Gu, J. (1992). Ecient local search for very large-scale satisability problems. SIGART Bul letin, 3 (1).
+- Hooker, J. N. (1993). Needed: An empirical science of algorithms. Tech. rep., Graduate School of Industrial Administration, Carnegie Mellon University, Pittsburgh PA.
+- Jerrum, M. (1992). Large cliques elude the Metropolis process. Random Structures and Algorithms, 3 (4), 347{359.
+- Jerrum, M., & Sorkin, G. (1993). Simulated annealing for graph bisection. Tech. rep. ECS-LFCS-93-260, Department of Computer Science, University of Edinburgh.
+- Koutsoupias, E., & Papadimitriou, C. H. (1992). On the greedy algorithm for satisability. Information Processing Letters, 43, 53{55.
+- Larrabee, T., & Tsuji, Y. (1992). Evidence for a Satisability Threshold for Random 3CNF Formulas. Tech. rep. UCSC-CRL-92-42, Baskin Center for Computer Engineering and Information Sciences, University of California, Santa Cruz.
+- McGeoch, C. (1986). Experimental Analysis of Algorithms. Ph.D. thesis, Carnegie Mellon University. Also available as CMU-CS-87-124.
+- Minton, S., Johnston, M. D., Philips, A. B., & Laird, P. (1990). Solving large-scale constraint satisfaction and scheduling problems using a heuristic repair method. In AAAI-90, Proceedings Eighth National Conference on Articial Intel ligence, pp. 17{ 24. AAAI Press/MIT Press.
+- Mitchell, D., Selman, B., & Levesque, H. (1992). Hard and easy distributions of SAT problems. In Proceedings, 10th National Conference on Articial Intel ligence. AAAI Press/The MIT Press.
+- Selman, B., & Kautz, H. (1993a). Domain-independent extensions to GSAT: Solving large structured satisability problems. In Proceedings, IJCAI-93. International Joint Conference on Articial Intelligence.
+- Selman, B., & Kautz, H. (1993b). An empirical study of greedy local search for satisability testing. In Proceedings of the Eleventh National Conference on Articial Intel ligence, pp. 46{51. AAAI Press/The MIT Press.
+- Selman, B., Levesque, H., & Mitchell, D. (1992). A new method for solving hard satisability problems. In Proceedings, 10th National Conference on Articial Intel ligence. AAAI Press/The MIT Press.
+- Spears, W. M. (1993). Simulated annealing for hard satisability problems. Tech. rep. AIC-93-015, AI Center, Naval Research Laboratory.
+- van Laarhoven, P., & Aarts, E. (1987). Simulated Annealing: Theory and Applications. D. Reidel Publishing Company, Dordrecht, Holland.","We describe an extensive study of search in GSAT, an approximation procedure
+for propositional satisfiability. GSAT performs greedy hill-climbing on the
+number of satisfied clauses in a truth assignment. Our experiments provide a
+more complete picture of GSAT's search than previous accounts. We describe in
+detail the two phases of search: rapid hill-climbing followed by a long plateau
+search. We demonstrate that when applied to randomly generated 3SAT problems,
+there is a very simple scaling with problem size for both the mean number of
+satisfied clauses and the mean branching rate. Our results allow us to make
+detailed numerical conjectures about the length of the hill-climbing phase, the
+average gradient of this phase, and to conjecture that both the average score
+and average branching rate decay exponentially during plateau search. We end by
+showing how these results can be used to direct future theoretical analysis.
+This work provides a case study of how computer experiments can be used to
+improve understanding of the theoretical properties of algorithms."

@@ -51,19 +51,22 @@ def run_benchmark(benchmark, text_key, summary_key):
         embeddings2 = outputs2.last_hidden_state[:, 0, :]
 
     similarity_score = cosine_similarity(embeddings1, embeddings2)
-    #print("Similarity Score:", similarity_score)
     return similarity_score
 
 def read_and_run_specific_benchmark(csv_file, text_key, summary_key):
     total_benchmarks = 0
     sim_sum = 0
+    csv.field_size_limit(10_000_000)
     reader = csv.DictReader(open(csv_file, encoding='utf-8'))
     for i, row in enumerate(reader):
+        if i > 20:
+            break
         total_benchmarks = total_benchmarks + 1
         sim_sum = sim_sum + run_benchmark(row, text_key, summary_key)
     print(f"Average Similarity for {csv_file} Benchmark:", sim_sum/total_benchmarks)
     
 
 if __name__ == "__main__":
-    read_and_run_specific_benchmark('scisumm.csv', 'text', 'summary')
-    read_and_run_specific_benchmark("usb.csv", 'input_lines', 'output_lines')
+    #read_and_run_specific_benchmark('data/scisumm.csv', 'text', 'summary')
+    #read_and_run_specific_benchmark("data/usb.csv", 'input_lines', 'output_lines')
+    read_and_run_specific_benchmark("data/benchmarks/scraped_articles.csv", "text", "summary")
