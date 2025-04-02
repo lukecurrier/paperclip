@@ -59,8 +59,6 @@ def read_and_run_specific_benchmark(csv_file, text_key, summary_key):
     sim_sum = 0
     reader = csv.DictReader(open(csv_file, encoding='utf-8'))
     for i, row in enumerate(reader):
-        if i >= 50:
-            break
         total_benchmarks = total_benchmarks + 1
         sim_sum = sim_sum + run_benchmark(row, text_key, summary_key)
     print(f"Average Similarity for {csv_file} Benchmark:", sim_sum/total_benchmarks)
