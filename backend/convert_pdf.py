@@ -1,7 +1,21 @@
 import argparse
 import os
+from pathlib import Path
+import uuid
 
-def convert_pdf_to_markdown(pdf_path, output_path=None):
+def create_paper_directory(paper_id):
+    """
+    Create a directory for the paper in the papers/ directory
+    """
+    base_dir = Path(__file__).parent / 'papers'
+    paper_dir = base_dir / paper_id
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    return paper_dir
+
+def convert_pdf_to_markdown(pdf_path, paper_id):
+    """
+    Convert a PDF to markdown and save it in the papers directory
+    """
     try:
         from marker.converters.pdf import PdfConverter
         from marker.models import create_model_dict
@@ -19,40 +33,35 @@ def convert_pdf_to_markdown(pdf_path, output_path=None):
         )
         
         print(f"Converting {pdf_path}...")
-
         rendered = converter(pdf_path)
 
-        if output_path is None:
-            output_dir = "conversions"
-            output_filename = os.path.splitext(os.path.basename(pdf_path))[0] + ".md"
-        else:
-            if os.path.splitext(output_path)[1]: 
-                output_dir, output_filename = os.path.split(output_path)
-            else:
-                output_dir = output_path 
-                output_filename = os.path.splitext(os.path.basename(pdf_path))[0] + ".md"
-
-        os.makedirs(output_dir, exist_ok=True)
-
-        final_output_path = os.path.join(output_dir, output_filename)
-
-        with open(final_output_path, 'w', encoding='utf-8') as f:
-            f.write(rendered.markdown)
+        # Create paper directory
+        paper_dir = create_paper_directory(paper_id)
         
-        print(f"Complete!")
+        # Save the markdown file
+        md_path = paper_dir / f"{paper_id}.md"
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(rendered.markdown)
+            
+        print(f"Successfully converted to {md_path}")
         return True
-    
+        
     except Exception as e:
-        import traceback
-        print(f"Error: {str(e)}")
-        traceback.print_exc()
+        print(f"Error converting PDF: {str(e)}")
         return False
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("pdf_path")
-    parser.add_argument("--output")
+def main():
+    parser = argparse.ArgumentParser(description='Convert PDF to markdown and save in papers directory')
+    parser.add_argument('pdf_path', help='Path to the PDF file')
+    parser.add_argument('paper_id', help='ID of the paper')
     
     args = parser.parse_args()
     
-    convert_pdf_to_markdown(args.pdf_path, args.output)
+    success = convert_pdf_to_markdown(args.pdf_path, args.paper_id)
+    if success:
+        print("Conversion completed successfully!")
+    else:
+        print("Conversion failed.")
+
+if __name__ == "__main__":
+    main()
