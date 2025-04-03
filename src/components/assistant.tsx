@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { UploadCloud, BookOpen, MessageSquare, FileText } from 'lucide-react';
+import { UploadCloud, BookOpen, MessageSquare, FileText, ArrowRight, BookOpenCheck } from 'lucide-react';
 
 // API base URL - change this if your Flask server runs on a different port
 const API_BASE_URL = 'http://127.0.0.1:5000';
@@ -135,30 +135,10 @@ const Assistant = () => {
         }, 500);
       } else {
         // Paper doesn't exist, process it
-        setProcessingProgress(0.1);
-        setProcessingMessage('Starting PDF processing...');
-        
         // Create form data for file upload
         const formData = new FormData();
         formData.append('file', file);
         formData.append('paperId', paperId);
-        
-        // Setup event source for progress updates
-        const eventSource = new EventSource(`${API_BASE_URL}/api/process-progress/${paperId}`);
-        
-        eventSource.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          setProcessingProgress(data.progress);
-          setProcessingMessage(data.message);
-          
-          if (data.progress >= 1) {
-            eventSource.close();
-          }
-        };
-        
-        eventSource.onerror = () => {
-          eventSource.close();
-        };
         
         // Call the backend API to process the PDF
         const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
@@ -167,30 +147,130 @@ const Assistant = () => {
         });
         
         if (!response.ok) {
-          eventSource.close();
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
         
-        if (data.success) {
-          setPaperContent(data.extractedText);
-          setSummary(data.summary);
-          setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}`);
-          setCurrentTab('summary');
-        } else {
-          alert(`Error: ${data.error}`);
+        if (!data.success) {
+          throw new Error(data.error || 'Unknown error processing PDF');
+        }
+        
+        // Simulated loading stages based on the logs, but we'll check real progress too
+        const loadingStages = [
+          { progress: 0.05, message: 'Uploading PDF...', time: 1000 },
+          { progress: 0.1, message: 'Loading layout model...', time: 2000 },
+          { progress: 0.15, message: 'Loading recognition models...', time: 3000 },
+          { progress: 0.2, message: 'Starting PDF conversion...', time: 1000 },
+          { progress: 0.3, message: 'Recognizing layout...', time: 4000 },
+          { progress: 0.4, message: 'Running OCR error detection...', time: 2000 },
+          { progress: 0.5, message: 'Detecting text boundaries...', time: 2000 },
+          { progress: 0.6, message: 'Recognizing text (this may take a while)...', time: 20000 }
+          // We'll skip the rest and check real progress
+        ];
+        
+        // Start checking real progress after simulated stages complete
+        let checkProgressTimer: NodeJS.Timeout | null = null;
+        let finalStageReached = false;
+        
+        const checkRealProgress = async () => {
+          try {
+            const response = await fetch(`${API_BASE_URL}/api/check-progress/${paperId}`);
+            if (response.ok) {
+              const data = await response.json();
+              
+              if (data.complete) {
+                // Processing is complete, fetch the paper data
+                if (checkProgressTimer) {
+                  clearInterval(checkProgressTimer);
+                }
+                finalStageReached = true;
+                
+                setProcessingProgress(0.95);
+                setProcessingMessage('Processing complete, loading results...');
+                
+                // Short delay to show the completion message
+                setTimeout(async () => {
+                  try {
+                    const paperResponse = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
+                    if (paperResponse.ok) {
+                      const paperData = await paperResponse.json();
+                      setPaperContent(paperData.content || '');
+                      setSummary(paperData.summary || '');
+                      setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}`);
+                      
+                      setProcessingProgress(1);
+                      setProcessingMessage('Paper ready!');
+                      
+                      setTimeout(() => {
+                        setCurrentTab('summary');
+                        setIsProcessing(false);
+                      }, 1000);
+                    } else {
+                      throw new Error('Failed to load paper data');
+                    }
+                  } catch (error) {
+                    console.error('Error loading paper data:', error);
+                    setIsProcessing(false);
+                    setProcessingProgress(0);
+                    alert('Error loading paper data. Please try again.');
+                  }
+                }, 1000);
+              } else if (data.progress) {
+                // Update progress with real data from backend
+                setProcessingProgress(data.progress);
+                setProcessingMessage(data.message);
+              }
+            }
+          } catch (error) {
+            console.error('Error checking progress:', error);
+            // Don't stop the timer on error, just try again
+          }
+        };
+        
+        // Simulate progress through each stage, then start checking real progress
+        for (let i = 1; i < loadingStages.length; i++) {
+          const stage = loadingStages[i];
+          
+          await new Promise(resolve => {
+            setTimeout(() => {
+              // Only update if we haven't reached the final stage yet
+              if (!finalStageReached) {
+                setProcessingProgress(stage.progress);
+                setProcessingMessage(stage.message);
+              }
+              resolve(null);
+            }, loadingStages[i - 1].time);
+          });
+        }
+        
+        // After simulated stages, start checking real progress
+        if (!finalStageReached) {
+          setProcessingProgress(0.7);
+          setProcessingMessage('Continuing processing...');
+          
+          // Check real progress every 2 seconds
+          checkProgressTimer = setInterval(checkRealProgress, 2000) as NodeJS.Timeout;
+          
+          // Set a maximum time limit (3 minutes)
+          setTimeout(() => {
+            if (checkProgressTimer) {
+              clearInterval(checkProgressTimer);
+              if (!finalStageReached) {
+                setIsProcessing(false);
+                setProcessingProgress(0);
+                alert('Processing is taking longer than expected. The paper may still be processing in the background. Please check again later.');
+              }
+            }
+          }, 180000); // 3 minutes
         }
       }
     } catch (error) {
       console.error('Error processing PDF:', error);
       alert('Failed to process PDF. Please try again.');
-    } finally {
-      setTimeout(() => {
-        setIsProcessing(false);
-        setProcessingProgress(0);
-        setProcessingMessage('');
-      }, 1000);
+      setIsProcessing(false);
+      setProcessingProgress(0);
+      setProcessingMessage('');
     }
   };
 
@@ -259,7 +339,7 @@ const Assistant = () => {
     <div className="flex flex-col w-full max-w-6xl mx-auto p-4 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">AI Research Paper Assistant</CardTitle>
+          <CardTitle className="text-2xl">PaperClip</CardTitle>
           <CardDescription>Upload an AI research paper to summarize and discuss</CardDescription>
         </CardHeader>
         
@@ -320,41 +400,61 @@ const Assistant = () => {
             </TabsContent>
             
             <TabsContent value="summary" className="space-y-4">
-              <div className="space-y-4">
-                <div className="border rounded-lg p-4 bg-gray-50">
-                  <h3 className="font-medium text-sm mb-2 text-gray-500">Original Paper Content:</h3>
-                  <div className="max-h-40 overflow-y-auto p-2 bg-white rounded border">
-                    {paperContent}
+              <div className="space-y-6">
+                <div className="border rounded-lg p-6 shadow-sm bg-white">
+                  <div className="flex items-center gap-3 mb-4">
+                    <BookOpen className="h-6 w-6 text-blue-600" />
+                    <h2 className="text-xl font-bold">Paper Summary</h2>
                   </div>
+                  
+                  {!summary ? (
+                    <div className="flex items-center justify-center h-40 bg-gray-50 rounded-md">
+                      <p className="text-gray-500">Loading summary...</p>
+                    </div>
+                  ) : (
+                    <div className="prose prose-blue max-w-none">
+                      {summary.split('\n').map((line, i) => {
+                        if (line.startsWith('# ')) {
+                          return <h1 key={i} className="text-2xl font-bold mt-6 mb-4 text-blue-800">{line.substring(2)}</h1>;
+                        } else if (line.startsWith('## ')) {
+                          return <h2 key={i} className="text-xl font-bold mt-5 mb-3 text-blue-700">{line.substring(3)}</h2>;
+                        } else if (line.startsWith('### ')) {
+                          return <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-blue-600">{line.substring(4)}</h3>;
+                        } else if (line.trim() === '') {
+                          return <div key={i} className="my-2"></div>;
+                        } else {
+                          return <p key={i} className="my-2 text-gray-700 leading-relaxed">{line}</p>;
+                        }
+                      })}
+                    </div>
+                  )}
                 </div>
                 
-                <div className="border rounded-lg p-4">
-                  <h3 className="font-medium text-sm mb-2 flex items-center gap-2">
-                    <BookOpen className="h-4 w-4" />
-                    <span>Paper Summary:</span>
-                  </h3>
-                  <div className="prose max-w-none">
-                    {summary && summary.split('\n').map((line, i) => (
-                      line.startsWith('# ') ? (
-                        <h1 key={i} className="text-xl font-bold mt-4">{line.substring(2)}</h1>
-                      ) : line.startsWith('## ') ? (
-                        <h2 key={i} className="text-lg font-bold mt-3">{line.substring(3)}</h2>
-                      ) : (
-                        <p key={i} className="my-2">{line}</p>
-                      )
-                    ))}
-                    {!summary && (
-                      <p className="text-gray-500">Loading summary...</p>
-                    )}
-                  </div>
+                <div className="flex justify-between">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentTab('upload')}
+                    className="flex items-center gap-2"
+                  >
+                    <UploadCloud className="h-4 w-4" />
+                    Upload Different Paper
+                  </Button>
+                  
+                  <Button 
+                    onClick={() => setCurrentTab('discuss')}
+                    className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Discuss This Paper
+                  </Button>
                 </div>
               </div>
             </TabsContent>
             
             <TabsContent value="discuss" className="space-y-4">
-              <div className="flex gap-4 h-[700px]">
+              <div className="flex gap-4 h-[600px]">
                 {/* PDF Viewer */}
-                <div className="w-2/5 border rounded-lg overflow-hidden">
+                <div className="w-3/5 border rounded-lg overflow-hidden">
                   {pdfUrl ? (
                     <iframe 
                       src={pdfUrl} 
