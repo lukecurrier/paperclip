@@ -1,0 +1,7 @@
+The paper "DEMYSTIFYING CLIP DATA" aims to reveal the data curation approach of Contrastive Language-Image Pre-training (CLIP), a popular approach in computer vision and vision-language research. The authors propose a new algorithm, Metadata-Curated Language-Image Pre-training (MetaCLIP), which takes a raw data pool and metadata (derived from CLIP's concepts) and yields a balanced subset over the metadata distribution.
+
+The authors argue that CLIP's success is due to its high-quality dataset, WIT400M, which is curated from the web, but the specifics of its curation process have remained a mystery. They attempt to demystify CLIP's data curation by introducing MetaCLIP, which uses a similar approach to CLIP's curation but with a more transparent and accessible method.
+
+The authors conduct experiments on CommonCrawl data with 400M image-text pairs and show that MetaCLIP outperforms CLIP on multiple standard benchmarks, including zero-shot ImageNet classification. They also scale up the data to 1B and 2.5B and observe a large gain over 400M, with similar performance for both 1B and 2.5B scales.
+
+The authors also conduct an ablation study on balancing in MetaCLIP and show that the choice of t = 20k by CLIP yields the best performance for ImageNet and averaged accuracy. They also study the effect of balancing on data distribution and

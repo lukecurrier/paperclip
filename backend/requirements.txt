@@ -8,7 +8,5 @@ transformers
 huggingface_hub 
 accelerate 
 torch
-#kokoro
-#soundfile
-#accelerate
 openai
+uuid
