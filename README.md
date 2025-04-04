@@ -1,4 +1,4 @@
-# PaperClip Code Base
+# PaperClip README
 
 ## Web Application Specs
 
