@@ -5,7 +5,6 @@ from marker.converters.pdf import PdfConverter
 from marker.models import create_model_dict
 from marker.output import text_from_rendered
 
-
 csv_file = "data/arxiv_ai.csv"
 df = pd.read_csv(csv_file)
 
@@ -27,6 +26,16 @@ def extract_text(pdf_url):
     os.remove(pdf_path)
     return text
 
+def filter_csv(csv_path, output_path):
+    temp_df = pd.read_csv(csv_path)
+    filtered_df = temp_df[temp_df['text'].str.len() < 130000]
+    
+    # Save the filtered data to a new CSV file
+    filtered_df.to_csv(output_path, index=False)
+    
+    print(f"Filtered CSV saved to {output_path}")
+    
+
 if __name__ == '__main__':
     results = []
     for i, row in df.iterrows():
@@ -41,5 +50,6 @@ if __name__ == '__main__':
         except:
             pass
     output_df = pd.DataFrame(results)
-    output_df.to_csv("data/benchmarks/scraped_articles.csv", index=False)
-    print("Scraping complete. Data saved to scraped_articles.csv")
+    filtered_df = output_df[output_df['text'].str.len() < 130000]
+    filtered_df.to_csv("data/benchmark_files/filtered_articles.csv", index=False)
+    print("Scraping complete. Data saved to scraped_articles.csv. Filtered data saced to filtered_articles.csv")
