@@ -74,7 +74,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run benchmarks with specified model.")
     parser.add_argument("--model", type=str, required=True, help="Name of the model to use")
     args = parser.parse_args()
-
     model_name = args.model
     read_and_run_benchmark(model_name, "data/benchmark_files/usb.csv", 'input_lines', 'output_lines')
     read_and_run_benchmark(model_name, "data/benchmark_files/scraped_articles.csv", "text", "summary")
