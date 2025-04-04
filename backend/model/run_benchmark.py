@@ -12,7 +12,7 @@ load_dotenv()
 bert_model = AutoModel.from_pretrained("bert-base-uncased")
 bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
     
-def run_benchmark(model_name, benchmark, text_key, summary_key):
+def run_benchmark_api(model_name, benchmark, text_key, summary_key):
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("BASE_URL")
     
@@ -48,9 +48,13 @@ def run_benchmark(model_name, benchmark, text_key, summary_key):
         embeddings2 = outputs2.last_hidden_state[:, 0, :]
 
     similarity_score = cosine_similarity(embeddings1, embeddings2)
+    print(similarity_score)
     return similarity_score
 
-def read_and_run_specific_benchmark(model_name, csv_file, text_key, summary_key):
+def run_benchmark_transformers(model_name, benchmark, text_key, summary_key):
+    return 1
+
+def read_and_run_benchmark(model_name, csv_file, text_key, summary_key):
     print("Running benchmark: ", csv_file)
     total_benchmarks = 0
     sim_sum = 0
@@ -58,7 +62,11 @@ def read_and_run_specific_benchmark(model_name, csv_file, text_key, summary_key)
     reader = csv.DictReader(open(csv_file, encoding='utf-8'))
     for i, row in enumerate(reader):
         total_benchmarks = total_benchmarks + 1
-        sim_sum = sim_sum + run_benchmark(model_name, row, text_key, summary_key)
+        if model_name == "llama3p1-8b-instruct":
+            sim_sum = sim_sum + run_benchmark_api(model_name, row, text_key, summary_key)
+        else:
+            sim_sum = sim_sum + run_benchmark_transformers(model_name, row, text_key, summary_key)
+            
     print(f"Average Similarity for {csv_file} Benchmark:", sim_sum/total_benchmarks)
     
 
@@ -68,5 +76,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_name = args.model
-    read_and_run_specific_benchmark(model_name, "data/benchmark_files/usb.csv", 'input_lines', 'output_lines')
-    read_and_run_specific_benchmark(model_name, "data/benchmark_files/scraped_articles.csv", "text", "summary")
+    read_and_run_benchmark(model_name, "data/benchmark_files/usb.csv", 'input_lines', 'output_lines')
+    read_and_run_benchmark(model_name, "data/benchmark_files/scraped_articles.csv", "text", "summary")
