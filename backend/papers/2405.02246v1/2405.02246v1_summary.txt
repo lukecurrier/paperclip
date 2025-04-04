@@ -1,9 +1,0 @@
-The paper "What matters when building vision-language models?" by Hugo Laurençon, Léo Tronchon, Matthieu Cord, and Victor Sanh explores the design choices in vision-language models (VLMs) and their impact on performance. The authors conduct extensive experiments around pre-trained models, architecture choice, data, and training methods to identify the most effective design choices.
-
-The paper highlights the importance of pre-trained unimodal backbones, specifically language models and vision encoders, in determining the performance of VLMs. The authors find that the quality of the language model backbone has a higher impact on the performance of the final VLM than the quality of the vision backbone.
-
-The paper also compares the fully autoregressive architecture with the cross-attention architecture, finding that the fully autoregressive architecture outperforms the cross-attention architecture when training the unimodal backbones, despite having more parameters.
-
-The authors introduce Idefics2, an open 8B parameters vision-language model, which achieves state-of-the-art performance in its size category on various benchmarks while being more efficient at inference. Idefics2 is trained on a large multimodal dataset, including image-text pairs, PDF documents, and rendered text, and is fine-tuned on a collection of 50 vision-language datasets.
-
-The paper also explores the use of learned pooling to reduce the number of visual tokens necessary for each image, finding that it increases performance by 8.5 points on average and reduces

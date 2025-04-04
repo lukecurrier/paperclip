@@ -19,9 +19,6 @@ CORS(app)  # allows your frontend to call this API
 PAPERS_DIR = os.path.join(os.path.dirname(__file__), "papers")
 os.makedirs(PAPERS_DIR, exist_ok=True)
 
-# Dictionary to store progress information for each paper processing task
-processing_progress = {}
-
 @app.route('/api/test', methods=['GET'])
 def test():
     return jsonify({'message': 'Backend server is working!'})
@@ -56,14 +53,6 @@ def get_paper(paper_id):
         return jsonify({'error': 'Paper not found'}), 404
     
     try:
-        # Check if this paper is still being processed
-        if paper_id in processing_progress:
-            return jsonify({
-                'success': False,
-                'status': 'processing',
-                'message': 'Paper is still being processed'
-            }), 202
-        
         # Read the markdown content
         with open(md_path, 'r', encoding='utf-8') as f:
             markdown_content = f.read()
@@ -94,104 +83,36 @@ def get_paper(paper_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-def process_pdf_task(file_path, paper_id, progress_queue):
-    """
-    Background task to process a PDF file
-    """
-    try:
-        paper_dir = create_paper_directory(paper_id)
-        
-        # Also save a copy of the original PDF
-        pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
-        shutil.copy(file_path, pdf_path)
-        
-        progress_queue.put({"progress": 0.2, "message": "PDF saved, starting conversion..."})
-        
-        # Convert PDF to markdown
-        progress_queue.put({"progress": 0.3, "message": "Extracting text from PDF..."})
-        success = convert_pdf_to_markdown(file_path, paper_id)
-        
-        if not success:
-            progress_queue.put({"progress": 0, "message": "Failed to convert PDF", "error": True})
-            return None, None, "Failed to convert PDF"
-        
-        progress_queue.put({"progress": 0.6, "message": "PDF converted to text, reading content..."})
-        
-        # Get the path to the generated markdown file
-        markdown_path = os.path.join(paper_dir, f"{paper_id}.md")
-        
-        # Read the markdown content
-        with open(markdown_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-        
-        progress_queue.put({"progress": 0.7, "message": "Generating summary..."})
-        
-        # Summarize the markdown
-        summary = summarize(markdown_content)
-        
-        progress_queue.put({"progress": 0.9, "message": "Saving summary..."})
-        
-        # Save the summary
-        summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(summary)
-        
-        # Clean up the temporary file
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
-        progress_queue.put({"progress": 1.0, "message": "Processing complete!"})
-        
-        return markdown_content, summary, None
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        # Clean up on error
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        progress_queue.put({"progress": 0, "message": f"Error: {str(e)}", "error": True})
-        return None, None, str(e)
+# Delete process_pdf_task function since we're not using it anymore
 
-@app.route('/api/process-progress/<paper_id>', methods=['GET'])
-def get_processing_progress(paper_id):
+@app.route('/api/check-progress/<paper_id>', methods=['GET'])
+def check_progress(paper_id):
     """
-    SSE endpoint to stream progress updates
+    Check if a paper has been processed yet (used for progress monitoring)
     """
-    def generate():
-        if paper_id not in processing_progress:
-            yield f"data: {json.dumps({'progress': 0, 'message': 'No processing task found'})}\n\n"
-            return
-        
-        q = processing_progress[paper_id]
-        last_progress = None
-        
-        while True:
-            try:
-                # Non-blocking get with timeout
-                progress_data = q.get(timeout=0.1)
-                q.task_done()
-                
-                # If we got an error, return it and stop
-                if progress_data.get("error", False):
-                    yield f"data: {json.dumps(progress_data)}\n\n"
-                    break
-                
-                # Send progress update
-                yield f"data: {json.dumps(progress_data)}\n\n"
-                last_progress = progress_data
-                
-                # If we reached 100%, stop streaming
-                if progress_data["progress"] >= 1.0:
-                    break
-            except queue.Empty:
-                # If no updates, check if the queue still exists
-                if paper_id not in processing_progress:
-                    if last_progress and last_progress["progress"] < 1.0:
-                        yield f"data: {json.dumps({'progress': 0, 'message': 'Processing stopped unexpectedly'})}\n\n"
-                    break
-                time.sleep(0.5)  # Short sleep to prevent CPU spinning
+    paper_dir = os.path.join(PAPERS_DIR, paper_id)
+    md_path = os.path.join(paper_dir, f"{paper_id}.md")
+    summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
     
-    return Response(generate(), mimetype="text/event-stream")
+    # Check if both markdown and summary files exist
+    if os.path.exists(md_path) and os.path.exists(summary_path):
+        return jsonify({
+            'complete': True,
+            'message': 'Processing complete'
+        })
+    elif os.path.exists(md_path):
+        return jsonify({
+            'complete': False,
+            'progress': 0.8,
+            'message': 'PDF converted, generating summary...'
+        })
+    else:
+        return jsonify({
+            'complete': False,
+            'progress': 0.5,
+            'message': 'Processing in progress...'
+        })
+
 
 @app.route('/api/process-pdf', methods=['POST'])
 def process_pdf():
@@ -217,29 +138,59 @@ def process_pdf():
         file_path = os.path.join(temp_dir, temp_filename)
         file.save(file_path)
 
-        # Create a queue for progress updates
-        progress_queue = queue.Queue()
-        processing_progress[paper_id] = progress_queue
-        
-        # Initial progress update
-        progress_queue.put({"progress": 0.1, "message": "Starting PDF processing..."})
-        
         # Process the PDF in a background thread
         def process_thread():
-            markdown_content, summary, error = process_pdf_task(file_path, paper_id, progress_queue)
-            # Keep the queue in the dictionary for a short while to ensure all messages are read
-            time.sleep(5)
-            # Clean up
-            if paper_id in processing_progress:
-                del processing_progress[paper_id]
+            try:
+                paper_dir = create_paper_directory(paper_id)
+                
+                # Also save a copy of the original PDF
+                pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
+                shutil.copy(file_path, pdf_path)
+                
+                # Convert PDF to markdown
+                success = convert_pdf_to_markdown(file_path, paper_id)
+                
+                if not success:
+                    print(f"Failed to convert PDF for {paper_id}")
+                    return
+                
+                # Get the path to the generated markdown file
+                markdown_path = os.path.join(paper_dir, f"{paper_id}.md")
+                
+                # Read the markdown content
+                with open(markdown_path, 'r', encoding='utf-8') as f:
+                    markdown_content = f.read()
+                
+                # Summarize the markdown
+                summary = summarize(markdown_content)
+                
+                # Save the summary
+                summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
+                with open(summary_path, 'w', encoding='utf-8') as f:
+                    f.write(summary)
+                
+                # Clean up the temporary file
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    
+                print(f"Successfully processed {paper_id}")
+                
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"Error processing PDF: {str(e)}")
+                # Clean up on error
+                if os.path.exists(file_path):
+                    os.remove(file_path)
         
+        # Start the processing thread
         threading.Thread(target=process_thread).start()
         
         # Return success immediately without waiting for processing to complete
         return jsonify({
             'success': True,
             'message': 'PDF processing started',
-            'paperid': paper_id
+            'paperId': paper_id
         })
         
     return jsonify({'error': 'Unknown error'}), 500
