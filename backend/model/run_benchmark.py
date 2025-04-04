@@ -5,14 +5,30 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModel
 import csv
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
 import argparse
 
 load_dotenv()
 
 bert_model = AutoModel.from_pretrained("bert-base-uncased")
 bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-    
-def run_benchmark_api(model_name, benchmark, text_key, summary_key):
+
+def get_similarity_score(resp_content, benchmark, summary_key):
+    input_ids1 = torch.tensor(bert_tokenizer.encode(resp_content, truncation=True, max_length=512)).unsqueeze(0)
+    input_ids2 = torch.tensor(bert_tokenizer.encode(benchmark[summary_key], truncation=True, max_length=512)).unsqueeze(0)
+
+    # Obtain the BERT embeddings
+    with torch.no_grad():
+        outputs1 = bert_model(input_ids1)
+        outputs2 = bert_model(input_ids2)
+        embeddings1 = outputs1.last_hidden_state[:, 0, :]
+        embeddings2 = outputs2.last_hidden_state[:, 0, :]
+
+    similarity_score = cosine_similarity(embeddings1, embeddings2)
+    print(similarity_score)
+    return similarity_score
+
+def run_benchmark_api(model_name, benchmark, text_key):
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("BASE_URL")
     
@@ -36,23 +52,26 @@ def run_benchmark_api(model_name, benchmark, text_key, summary_key):
         max_tokens=300
     )    
     resp_content = response.choices[0].message.content
+    return resp_content
+
+def run_benchmark_transformers(model_name, benchmark, text_key):
+    model = AutoModelForCausalLM.from_pretrained(model_name, config={"use_flash_attention": False}).to("cuda")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    prompt = f"""# Text\n\n{benchmark[text_key]}\n\n# Summary\n\n"""
     
-    input_ids1 = torch.tensor(bert_tokenizer.encode(resp_content, truncation=True, max_length=512)).unsqueeze(0)
-    input_ids2 = torch.tensor(bert_tokenizer.encode(benchmark[summary_key], truncation=True, max_length=512)).unsqueeze(0)
+    inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to("cuda")
 
-    # Obtain the BERT embeddings
-    with torch.no_grad():
-        outputs1 = bert_model(input_ids1)
-        outputs2 = bert_model(input_ids2)
-        embeddings1 = outputs1.last_hidden_state[:, 0, :]
-        embeddings2 = outputs2.last_hidden_state[:, 0, :]
-
-    similarity_score = cosine_similarity(embeddings1, embeddings2)
-    print(similarity_score)
-    return similarity_score
-
-def run_benchmark_transformers(model_name, benchmark, text_key, summary_key):
-    return 1
+    outputs = model.generate(
+        inputs["input_ids"],
+        pad_token_id = tokenizer.eos_token_id,
+        max_new_tokens=300,
+        do_sample=True,
+        temperature=0.2,
+        attention_mask=inputs["attention_mask"],
+        top_p=None)
+    
+    resp_content = tokenizer.decode(outputs[0])
+    return resp_content
 
 def read_and_run_benchmark(model_name, csv_file, text_key, summary_key):
     print("Running benchmark: ", csv_file)
@@ -63,9 +82,15 @@ def read_and_run_benchmark(model_name, csv_file, text_key, summary_key):
     for i, row in enumerate(reader):
         total_benchmarks = total_benchmarks + 1
         if model_name == "llama3p1-8b-instruct":
-            sim_sum = sim_sum + run_benchmark_api(model_name, row, text_key, summary_key)
+            sim_sum = sim_sum + get_similarity_score(
+                run_benchmark_api(model_name, row, text_key),
+                row,
+                summary_key)
         else:
-            sim_sum = sim_sum + run_benchmark_transformers(model_name, row, text_key, summary_key)
+            sim_sum = sim_sum + get_similarity_score(
+                run_benchmark_transformers(model_name, row, text_key),
+                row,
+                summary_key)
             
     print(f"Average Similarity for {csv_file} Benchmark:", sim_sum/total_benchmarks)
     
