@@ -1,5 +1,19 @@
 # PaperClip README
 
+## Finetuning
+In order to run the finetuning script, run the following on a GPU:
+
+`python3 backend/model/run_benchmark.py --mode finetune`
+
+In order to run the benchmarks on the finetuned model from above, run the following. Do not forget to update the path to the newly finetuned model in the script:
+
+`python3 backend/model/run_benchmark.py --mode benchmark`
+
+## Running the Benchmarks
+In order to run the benchmarks on any of the base models, use the following command:
+
+`python3 backend/model/finetune.py --model [MODEL_NAME]`
+
 ## Web Application Specs
 
 ## Model Specs
