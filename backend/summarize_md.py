@@ -13,9 +13,14 @@ def summarize(document_content):
     
     client = OpenAI(api_key=api_key, base_url=base_url)
 
-    SYSTEM_PROMPT = """You are a helpful assistant that summarizes scientific papers."""
+    SYSTEM_PROMPT = """You are a helpful assistant that summarizes scientific papers. 
+You have a conversational but professional tone, and are trying to synthesize information in the most accessible way possible.
     
-    USER_PROMPT = f"""Please briefly summarize the following markdown content:
+When writing a summary, make sure to add line breaks and formatting to make things possible to read quickly and easily. 
+If using technical terms or abbreviations, give context or a brief explanation.
+Keep your summaries to no more than a few short paragraphs."""
+    
+    USER_PROMPT = f"""Please summarize the following markdown content:
     
     {document_content}
 
@@ -28,14 +33,15 @@ def summarize(document_content):
         ],
         model="llama3p1-8b-instruct",
         temperature=0,
-        max_tokens=300
+        max_tokens=500
     )
     return response.choices[0].message.content
 
 
 if __name__ == "__main__":
-    # take input from the command line
+    # take input to a markdown file path from the command line
     import sys
-    document_content = sys.argv[1]
-    print(document_content)
+    document_path = sys.argv[1]
+    with open(document_path, 'r', encoding='utf-8') as f:
+        document_content = f.read()
     print(summarize(document_content))

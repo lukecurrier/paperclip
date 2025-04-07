@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { UploadCloud, BookOpen, MessageSquare, FileText, ArrowRight, BookOpenCheck } from 'lucide-react';
 
-// API base URL - change this if your Flask server runs on a different port
 const API_BASE_URL = 'http://127.0.0.1:5000';
 
 const LoadingBar = ({ progress = 0, message = '' }: { progress: number; message: string }) => (
