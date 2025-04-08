@@ -1,1 +1,34 @@
-The paper presents Muse, a text-to-image Transformer model that achieves state-of-the-art image generation performance while being significantly more efficient than diffusion or autoregressive models. Muse is trained on a masked modeling task in discrete token space, where it predicts randomly masked image tokens given the text embedding extracted from a pre-trained large language model (LLM). The model consists of several sub-models, including a pair of VQGAN "tokenizer" models, a base masked image model, and a super-resolution model. The base model takes a sequence of partially masked low-res tokens and predicts the marginal distribution for each masked token, conditioned on the unmasked tokens and a T5-XXL text embedding. The super-resolution model translates the lower-resolution latent map to the higher-resolution latent map, followed by decoding through the higher-resolution VQGAN to give the final high-resolution image. Muse achieves a new state-of-the-art on CC3M, with an FID score of 6.06, and a CLIP score of 0.32 on zero-shot COCO evaluation. The model is also faster than comparable models, with an inference time of 0.5s for 256x256 images and 1.3s for 512x512 images.
+**Muse: A Text-to-Image Generation Model**
+
+Muse is a text-to-image generation model that achieves state-of-the-art image generation performance while being significantly more efficient than diffusion or autoregressive models. The model is trained on a masked modeling task in discrete token space, where it predicts randomly masked image tokens given the text embedding extracted from a pre-trained large language model (LLM).
+
+**Key Contributions:**
+
+1. **Efficient Text-to-Image Generation**: Muse is significantly faster than comparable models due to the use of quantized image tokens and parallel decoding.
+2. **Zero-Shot Image Editing**: Muse enables out-of-the-box, zero-shot editing capabilities including inpainting, outpainting, and mask-free editing.
+3. **High-Quality Image Generation**: Muse achieves excellent FID and CLIP scores, indicating high-quality image generation and alignment with text prompts.
+
+**Model Architecture:**
+
+Muse consists of several sub-models:
+
+1. **Pre-trained Text Encoders**: A pre-trained LLM is used to extract text embeddings, which are then used to condition the image generation process.
+2. **Semantic Tokenization using VQGAN**: A VQGAN model is used to encode images into discrete tokens, which are then used as input to the image generation process.
+3. **Base Model**: A masked transformer is used to predict masked image tokens given the text embedding and image tokens.
+4. **Super-Resolution Model**: A transformer is used to upsample the base latent map to a higher-resolution latent map.
+
+**Training and Evaluation:**
+
+Muse is trained on the Imagen dataset and evaluated on the CC3M and COCO datasets. The model achieves state-of-the-art results on CC3M and competitive results on COCO.
+
+**Image Editing:**
+
+Muse enables zero-shot image editing capabilities, including inpainting, outpainting, and mask-free editing. The model can be used to edit real input images without fine-tuning or inverting the model.
+
+**Related Work:**
+
+Muse is related to other text-to-image generation models, including Imagen, Parti, and DALL-E 2. However, Muse is more efficient and achieves better results on certain metrics.
+
+**Conclusion:**
+
+Muse is a state-of-the-art text-to-image generation model that achieves high-quality image generation and efficient inference. The model enables zero-shot image editing capabilities and can be used for a variety of applications, including image generation and editing.

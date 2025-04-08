@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { UploadCloud, BookOpen, MessageSquare, FileText, ArrowRight, BookOpenCheck } from 'lucide-react';
 
+// API base URL - change this if your Flask server runs on a different port
 const API_BASE_URL = 'http://127.0.0.1:5000';
 
 const LoadingBar = ({ progress = 0, message = '' }: { progress: number; message: string }) => (
@@ -36,6 +37,7 @@ const Assistant = () => {
   const [messages, setMessages] = useState<Array<{sender: string, content: string}>>([]);
   const [userMessage, setUserMessage] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
+  const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
 
   useEffect(() => {
     // Check for paper data if we already have a paperId
@@ -92,6 +94,36 @@ const Assistant = () => {
     } catch (error) {
       console.error('Error checking existing paper:', error);
       return false;
+    }
+  };
+
+  const regenerateSummary = async () => {
+    if (!paperId) return;
+    
+    setIsRegeneratingSummary(true);
+    
+    try {
+      // Call the API to regenerate the summary
+      const response = await fetch(`${API_BASE_URL}/api/regenerate-summary/${paperId}`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to regenerate summary: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setSummary(data.summary);
+      } else {
+        alert(`Error: ${data.error || 'Failed to regenerate summary'}`);
+      }
+    } catch (error) {
+      console.error('Error regenerating summary:', error);
+      alert('Failed to regenerate summary. Please try again.');
+    } finally {
+      setIsRegeneratingSummary(false);
     }
   };
 
@@ -338,7 +370,7 @@ const Assistant = () => {
     <div className="flex flex-col w-full max-w-6xl mx-auto p-4 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">PaperClip</CardTitle>
+          <CardTitle className="text-2xl">AI Research Paper Assistant</CardTitle>
           <CardDescription>Upload an AI research paper to summarize and discuss</CardDescription>
         </CardHeader>
         
@@ -401,9 +433,30 @@ const Assistant = () => {
             <TabsContent value="summary" className="space-y-4">
               <div className="space-y-6">
                 <div className="border rounded-lg p-6 shadow-sm bg-white">
-                  <div className="flex items-center gap-3 mb-4">
-                    <BookOpen className="h-6 w-6 text-blue-600" />
-                    <h2 className="text-xl font-bold">Paper Summary</h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <BookOpen className="h-6 w-6 text-blue-600" />
+                      <h2 className="text-xl font-bold">Paper Summary</h2>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={regenerateSummary}
+                      disabled={isRegeneratingSummary}
+                      className="flex items-center gap-2"
+                    >
+                      {isRegeneratingSummary ? (
+                        <>
+                          <div className="h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                          Regenerating...
+                        </>
+                      ) : (
+                        <>
+                          <BookOpenCheck className="h-4 w-4" />
+                          Regenerate Summary
+                        </>
+                      )}
+                    </Button>
                   </div>
                   
                   {!summary ? (
@@ -413,16 +466,66 @@ const Assistant = () => {
                   ) : (
                     <div className="prose prose-blue max-w-none">
                       {summary.split('\n').map((line, i) => {
+                        // Handle bold text with asterisks (like **text**)
+                        const processedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                        
+                        // Handle headings
                         if (line.startsWith('# ')) {
                           return <h1 key={i} className="text-2xl font-bold mt-6 mb-4 text-blue-800">{line.substring(2)}</h1>;
                         } else if (line.startsWith('## ')) {
                           return <h2 key={i} className="text-xl font-bold mt-5 mb-3 text-blue-700">{line.substring(3)}</h2>;
                         } else if (line.startsWith('### ')) {
                           return <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-blue-600">{line.substring(4)}</h3>;
-                        } else if (line.trim() === '') {
-                          return <div key={i} className="my-2"></div>;
-                        } else {
+                        } 
+                        // Handle numbered lists (looking for patterns like "1. ", "2. ", etc.)
+                        else if (/^\d+\.\s/.test(line)) {
+                          // Extract the number and the content
+                          const match = line.match(/^(\d+)\.\s(.*)$/);
+                          if (match) {
+                            const [_, number, content] = match;
+                            // Use dangerouslySetInnerHTML to parse any bold formatting within the list item
+                            return (
+                              <div key={i} className="flex gap-2 my-1">
+                                <span className="font-semibold">{number}.</span>
+                                <span dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                              </div>
+                            );
+                          }
                           return <p key={i} className="my-2 text-gray-700 leading-relaxed">{line}</p>;
+                        }
+                        // Handle bullet points
+                        else if (line.startsWith('* ') || line.startsWith('- ')) {
+                          return (
+                            <div key={i} className="flex gap-2 my-1 ml-5">
+                              <span>•</span>
+                              <span dangerouslySetInnerHTML={{ __html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                            </div>
+                          );
+                        } else if (line.startsWith('  * ') || line.startsWith('  - ')) {
+                          return (
+                            <div key={i} className="flex gap-2 my-1 ml-10">
+                              <span>•</span>
+                              <span dangerouslySetInnerHTML={{ __html: line.substring(4).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                            </div>
+                          );
+                        }
+                        // Handle code blocks
+                        else if (line.startsWith('```')) {
+                          return <div key={i} className="bg-gray-100 p-2 rounded my-2 font-mono text-sm">{line.substring(3)}</div>;
+                        } else if (line.startsWith('`') && line.endsWith('`')) {
+                          return <code key={i} className="bg-gray-100 px-1 rounded text-sm font-mono">{line.substring(1, line.length - 1)}</code>;
+                        }
+                        // Handle blockquotes
+                        else if (line.startsWith('> ')) {
+                          return <blockquote key={i} className="border-l-4 border-gray-300 pl-4 italic my-2" dangerouslySetInnerHTML={{ __html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></blockquote>;
+                        }
+                        // Handle empty lines
+                        else if (line.trim() === '') {
+                          return <div key={i} className="my-2"></div>;
+                        } 
+                        // Handle regular paragraphs
+                        else {
+                          return <p key={i} className="my-2 text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>;
                         }
                       })}
                     </div>
@@ -474,7 +577,7 @@ const Assistant = () => {
                       <div className="text-center text-gray-500 my-auto">
                         <MessageSquare className="h-12 w-12 mx-auto opacity-30" />
                         <p className="mt-2">Ask questions about the paper</p>
-                        <p className="text-sm mt-1">Press Enter to send, Cmd+Enter for a new line</p>
+                        <p className="text-sm mt-1">Press Enter to send, Shift+Enter for a new line</p>
                       </div>
                     ) : (
                       messages.map((msg, i) => (
@@ -513,19 +616,6 @@ const Assistant = () => {
             </TabsContent>
           </Tabs>
         </CardContent>
-        
-        <CardFooter className="flex justify-between">
-          <div className="text-sm text-gray-500">
-            {file ? `Current file: ${file.name}` : 'No file selected'}
-          </div>
-          <div>
-            {currentTab !== 'upload' && (
-              <Button variant="outline" onClick={() => setCurrentTab('upload')}>
-                Upload New Paper
-              </Button>
-            )}
-          </div>
-        </CardFooter>
       </Card>
     </div>
   );

@@ -1,0 +1,18 @@
+The paper "What matters when building vision-language models?" by Hugo Laurençon, Léo Tronchon, Matthieu Cord, and Victor Sanh explores the design choices in vision-language models (VLMs) and their impact on performance. The authors argue that critical decisions in VLM design are often not justified experimentally, making it difficult to identify which choices improve model performance.
+
+The paper conducts extensive experiments around pre-trained models, architecture choice, data, and training methods. The authors develop Idefics2, an efficient foundational VLM of 8 billion parameters, which achieves state-of-the-art performance within its size category across various multimodal benchmarks.
+
+The authors identify two areas where various works adopt different design choices: (a) model architecture, and in particular, connector modules that fuse the vision and text modalities and their impact on inference efficiency, and (b) multimodal training procedure and its impact on training stability.
+
+The paper presents several key findings:
+
+1.  The quality of the language model backbone has a higher impact on the performance of the final VLM than the quality of the vision backbone.
+2.  The fully autoregressive architecture outperforms the cross-attention architecture when training the unimodal backbones, although it requires modifications to the optimization procedure to ensure a stable training.
+3.  Unfreezing the pre-trained backbones under the fully autoregressive architecture can lead to training divergences, but leveraging LoRA still adds expressivity to the training and stabilizes it.
+4.  Reducing the number of visual tokens with learned pooling significantly improves compute efficiency at training and inference while improving performance on downstream tasks.
+5.  Adapting a vision encoder pre-trained on fixed-size square images to preserve images' original aspect ratio and resolution does not degrade performance while speeding up training and inference and reducing memory.
+6.  Splitting images into sub-images during training allows trading compute efficiency for more performance during inference, particularly in tasks involving reading text in an image.
+
+The authors also release Idefics2, a foundational VLM with 8 billion parameters, along with the datasets created for its training. Idefics2 achieves state-of-the-art performance in its size category on various benchmarks while being more efficient at inference, and is on par with state-of-the-art models 4 times larger on some vision-language benchmarks.
+
+Overall, the paper provides a comprehensive analysis of the design choices in VLMs and presents several key findings that can

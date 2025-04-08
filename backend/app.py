@@ -83,7 +83,39 @@ def get_paper(paper_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-# Delete process_pdf_task function since we're not using it anymore
+@app.route('/api/regenerate-summary/<paper_id>', methods=['POST'])
+def regenerate_summary(paper_id):
+    """
+    Regenerate the summary for a paper
+    """
+    paper_dir = os.path.join(PAPERS_DIR, paper_id)
+    md_path = os.path.join(paper_dir, f"{paper_id}.md")
+    summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
+    
+    if not os.path.exists(md_path):
+        return jsonify({'error': 'Paper not found'}), 404
+    
+    try:
+        # Read the markdown content
+        with open(md_path, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+        
+        # Generate a new summary
+        new_summary = summarize(markdown_content)
+        
+        # Save the new summary
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write(new_summary)
+        
+        return jsonify({
+            'success': True,
+            'summary': new_summary
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/check-progress/<paper_id>', methods=['GET'])
 def check_progress(paper_id):
