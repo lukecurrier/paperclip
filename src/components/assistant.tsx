@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { UploadCloud, BookOpen, MessageSquare, FileText, ArrowRight, BookOpenCheck } from 'lucide-react';
+import { UploadCloud, BookOpen, MessageSquare, FileText, BookOpenCheck } from 'lucide-react';
+import SimpleModelSelector from './simplemodelselector'; 
 
-// API base URL - change this if your Flask server runs on a different port
-const API_BASE_URL = 'http://127.0.0.1:5000';
+const API_BASE_URL = 'http://127.0.0.1:8000';
 
 const LoadingBar = ({ progress = 0, message = '' }: { progress: number; message: string }) => (
   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
@@ -38,6 +38,19 @@ const Assistant = () => {
   const [userMessage, setUserMessage] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
   const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('llama-3.1-8b'); // Default model
+
+  useEffect(() => {
+    const savedModel = localStorage.getItem('selectedModel');
+    if (savedModel) {
+      setSelectedModel(savedModel);
+    }
+  }, []);
+
+  // Update localStorage when model changes
+  useEffect(() => {
+    localStorage.setItem('selectedModel', selectedModel);
+  }, [selectedModel]);
 
   useEffect(() => {
     // Check for paper data if we already have a paperId
@@ -68,16 +81,13 @@ const Assistant = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (uploadedFile) {
-      // Check if the file is a PDF
       if (!uploadedFile.type.includes('pdf')) {
         alert('Please upload a PDF file');
         return;
       }
       
-      // Set the file
       setFile(uploadedFile);
       
-      // Generate a paper ID from the filename (remove extension)
       const paperId = uploadedFile.name.replace(/\.[^/.]+$/, "");
       setPaperId(paperId);
     }
@@ -97,15 +107,24 @@ const Assistant = () => {
     }
   };
 
+  const handleModelChange = (modelId: string) => {
+    setSelectedModel(modelId);
+  };
+
   const regenerateSummary = async () => {
     if (!paperId) return;
     
     setIsRegeneratingSummary(true);
     
     try {
-      // Call the API to regenerate the summary
       const response = await fetch(`${API_BASE_URL}/api/regenerate-summary/${paperId}`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelId: selectedModel
+        }),
       });
       
       if (!response.ok) {
@@ -170,6 +189,7 @@ const Assistant = () => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('paperId', paperId);
+        formData.append('modelId', selectedModel); // Add the selected model ID
         
         // Call the backend API to process the PDF
         const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
@@ -187,20 +207,20 @@ const Assistant = () => {
           throw new Error(data.error || 'Unknown error processing PDF');
         }
         
-        // Simulated loading stages based on the logs, but we'll check real progress too
         const loadingStages = [
           { progress: 0.05, message: 'Uploading PDF...', time: 1000 },
           { progress: 0.1, message: 'Loading layout model...', time: 2000 },
-          { progress: 0.15, message: 'Loading recognition models...', time: 3000 },
-          { progress: 0.2, message: 'Starting PDF conversion...', time: 1000 },
-          { progress: 0.3, message: 'Recognizing layout...', time: 4000 },
-          { progress: 0.4, message: 'Running OCR error detection...', time: 2000 },
-          { progress: 0.5, message: 'Detecting text boundaries...', time: 2000 },
-          { progress: 0.6, message: 'Recognizing text (this may take a while)...', time: 20000 }
-          // We'll skip the rest and check real progress
+          { progress: 0.2, message: 'Loading recognition models...', time: 3000 },
+          { progress: 0.3, message: 'Starting PDF conversion...', time: 1000 },
+          { progress: 0.4, message: 'Recognizing layout...', time: 4000 },
+          { progress: 0.5, message: 'Running OCR error detection...', time: 2000 },
+          { progress: 0.6, message: 'Detecting text boundaries...', time: 2000 },
+          { progress: 0.7, message: 'Recognizing text (this may take a while)...', time: 8000 },
+          { progress: 0.8, message: 'Recognizing text (this may take a while)...', time: 8000 },
+          { progress: 0.9, message: 'Recognizing text (this may take a while)...', time: 8000 },
+          { progress: 0.95, message: 'Finishing up...', time: 500 }
         ];
         
-        // Start checking real progress after simulated stages complete
         let checkProgressTimer: NodeJS.Timeout | null = null;
         let finalStageReached = false;
         
@@ -211,7 +231,6 @@ const Assistant = () => {
               const data = await response.json();
               
               if (data.complete) {
-                // Processing is complete, fetch the paper data
                 if (checkProgressTimer) {
                   clearInterval(checkProgressTimer);
                 }
@@ -327,6 +346,7 @@ const Assistant = () => {
         body: JSON.stringify({
           query: currentMessage,
           paperId: paperId,
+          modelId: selectedModel // Include the selected model ID
         }),
       });
       
@@ -369,9 +389,15 @@ const Assistant = () => {
   return (
     <div className="flex flex-col w-full max-w-6xl mx-auto p-4 space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">AI Research Paper Assistant</CardTitle>
-          <CardDescription>Upload an AI research paper to summarize and discuss</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-2xl">PaperClip</CardTitle>
+            <CardDescription>Upload an AI research paper to summarize and discuss</CardDescription>
+          </div>
+          <SimpleModelSelector 
+            selectedModel={selectedModel} 
+            onModelChange={handleModelChange} 
+          />
         </CardHeader>
         
         <CardContent>
@@ -577,7 +603,7 @@ const Assistant = () => {
                       <div className="text-center text-gray-500 my-auto">
                         <MessageSquare className="h-12 w-12 mx-auto opacity-30" />
                         <p className="mt-2">Ask questions about the paper</p>
-                        <p className="text-sm mt-1">Press Enter to send, Shift+Enter for a new line</p>
+                        <p className="text-sm mt-1">Press Enter to send, Cmd+Enter for a new line</p>
                       </div>
                     ) : (
                       messages.map((msg, i) => (
