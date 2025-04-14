@@ -1,0 +1,28 @@
+**What Matters When Building Vision-Language Models?**
+
+This paper investigates the design choices made in vision-language models (VLMs) and their impact on performance. The authors argue that many design choices are not justified experimentally, making it difficult to identify which choices improve model performance.
+
+**Key Findings:**
+
+1. **Pre-trained backbones are crucial**: The quality of the language model backbone has a higher impact on the performance of the final VLM than the quality of the vision backbone.
+2. **Fully autoregressive architecture outperforms cross-attention**: When training the unimodal backbones, the fully autoregressive architecture outperforms the cross-attention architecture, even though the latter has more parameters.
+3. **Reducing the number of visual tokens improves efficiency**: Using a perceiver resampler to reduce the number of visual tokens significantly improves compute efficiency at training and inference while improving performance on downstream tasks.
+4. **Adapting vision encoders to preserve aspect ratio and resolution**: Adapting a vision encoder pre-trained on fixed-size square images to preserve images' original aspect ratio and resolution does not degrade performance while speeding up training and inference and reducing memory.
+5. **Splitting images into sub-images trades compute for performance**: Splitting images into sub-images during training allows trading compute efficiency for more performance during inference.
+
+**Idefics2: A New Vision-Language Model**
+
+The authors train Idefics2, an open 8B parameters vision-language model, using a combination of pre-training and instruction fine-tuning. Idefics2 achieves state-of-the-art performance in its size category on various benchmarks while being more efficient at inference.
+
+**Key Contributions:**
+
+1. **New dataset**: The authors create a new dataset, The Cauldron, which includes 50 vision-language datasets covering a wide range of tasks.
+2. **Improved performance**: Idefics2 outperforms current state-of-the-art VLMs in its size category on various benchmarks.
+3. **Efficient inference**: Idefics2 is more efficient at inference than other VLMs, making it a more practical choice for real-world applications.
+
+**Limitations and Future Work:**
+
+1. **Security risks**: The authors identify security risks associated with VLMs, including the potential for generating malicious content.
+2. **Jail-breaking**: The authors highlight the need for further research on jail-breaking VLMs, which can circumvent cautionary prompts and generate problematic content.
+
+Overall, this paper provides valuable insights into the design choices made in VLMs and their impact on performance. The authors' contributions, including the creation of a new dataset and the development of a new vision-language model, will help advance the field of VLMs.
