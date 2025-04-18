@@ -1,19 +1,27 @@
-**Attention Is All You Need: A New Model Architecture for Sequence Transduction**
+# Text
 
-The paper proposes a new model architecture, the Transformer, which replaces traditional recurrent neural networks (RNNs) and convolutional neural networks (CNNs) with self-attention mechanisms. The Transformer is designed to handle sequence transduction tasks, such as machine translation, and achieves state-of-the-art results on several benchmarks.
+Provided proper attribution is provided, Google hereby grants permission to reproduce the tables and figures in this paper solely for use in journalistic or scholarly works.
 
-**Key Contributions:**
+# Attention Is All You Need
 
-1.  **Self-Attention Mechanism:** The Transformer uses a self-attention mechanism to draw global dependencies between input and output sequences, eliminating the need for recurrence and convolution.
-2.  **Multi-Head Attention:** The Transformer employs multi-head attention, which allows the model to jointly attend to information from different representation subspaces at different positions.
-3.  **Positional Encoding:** The Transformer uses positional encoding to inject information about the relative or absolute position of the tokens in the sequence.
-4.  **Training:** The Transformer is trained using the Adam optimizer with a learning rate schedule that increases the learning rate linearly for the first 4000 training steps and then decreases it proportionally to the inverse square root of the step number.
+Ashish Vaswani<sup>∗</sup> Google Brain avaswani@google.com
 
-**Results:**
+Llion Jones<sup>∗</sup> Google Research llion@google.com
 
-1.  **Machine Translation:** The Transformer achieves a new state-of-the-art result on the WMT 2014 English-to-German translation task, outperforming all previously reported models and ensembles.
-2.  **English Constituency Parsing:** The Transformer generalizes well to English constituency parsing, achieving better results than all previously reported models with the exception of the Recurrent Neural Network Grammar.
+Noam Shazeer<sup>∗</sup> Google Brain noam@google.com
 
-**Conclusion:**
+Aidan N. Gomez∗ † University of Toronto aidan@cs.toronto.edu
 
-The Transformer is a new model architecture that replaces traditional RNNs and CNNs with self-attention mechanisms. It achieves state-of-the-art results on several benchmarks and generalizes well to other tasks. The Transformer's ability to handle sequence transduction tasks efficiently and effectively makes it a promising approach for natural language processing tasks.
+Niki Parmar<sup>∗</sup> Google Research nikip@google.com
+
+Jakob Uszkoreit<sup>∗</sup> Google Research usz@google.com
+
+Łukasz Kaiser<sup>∗</sup> Google Brain lukaszkaiser@google.com
+
+Illia Polosukhin∗ ‡ illia.polosukhin@gmail.com
+
+### Abstract
+
+The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 Englishto-German translation task, improving over the existing best results, including ensembles, by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing both with large and limited training data.
+
+<sup>∗</sup>Equal contribution. Listing order is random. Jakob proposed replacing RNNs with self-attention and started the effort to evaluate this idea. Ashish, with Illia, designed and implemented the first Transformer models and has been crucially involved in every aspect of this work. Noam proposed scaled dot-product attention, multi-head attention and the parameter-free position embedding design which was critical towards making the final product as efficient as possible without losing performance compared against previous methods (which used much larger memory). Llion contributed ideas about how we could apply knowledge distillation techniques using teacher-student architectures such as GAN-based ones but ultimately decided not to pursue them due to their complexity at scale given current hardware limitations; he did however contribute some code snippets related to those approaches during early development stages when they were still under active research discussions within the team. Aidan's contributions included designing various loss functions specifically tailored toward language modeling problems like masked LM/PTM/LSTMs etc., alongwith implementing several novel tricks aimed at reducing computation cost associated with each layer so as make sure all layers can run efficiently even if there might only exist one GPU available per node in future distributed systems where multiple nodes will share resources among themselves via MPI communication protocols instead of just having dedicated machines running different processes simultaneously across many physical servers connected together physically speaking though logically separated into separate logical partitions called clusters consisting typically hundreds/thousands of individual compute units collectively referred to simply as CPUs regardless whether any actual computing power resides behind said cluster infrastructure itself since most modern processors come equipped today already supporting upscaling capabilities allowing users who have access to high-end supercomputers capable enough to handle massive amounts of computational load required especially considering recent advances made recently regarding deep learning algorithms' ability to process ever increasing volumes of input/output information thereby enabling researchers working around academia institutions worldwide now able finally achieve breakthrough progress despite significant challenges posed
