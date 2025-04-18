@@ -4,7 +4,8 @@ import sys
 from dotenv import load_dotenv
 from openai import OpenAI
 from models_config import get_model_config
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+import torch
 
 def clean_markdown(text: str) -> str:
     # Remove code blocks
@@ -56,22 +57,30 @@ class ModelClient:
     def generate_chat_response(self, query, paper_id, **kwargs):
         raise NotImplementedError("Subclasses must implement generate_chat_response")
     
-    def get_context(self, paper_id):
+    def get_context(self, paper_id, full=False):
         papers_dir = os.path.join(os.path.dirname(__file__), 'papers')
-        paper_path = os.path.join(papers_dir, paper_id, f'{paper_id}.md')
+        
+        # Determine the correct file path based on the 'full' parameter
+        if full:
+            doc_path = os.path.join(papers_dir, paper_id, f'{paper_id}.md')
+        else:
+            doc_path = os.path.join(papers_dir, paper_id, f'{paper_id}_summary.txt')
+        
         context_path = os.path.join(papers_dir, paper_id, 'context.txt')
         
-        if not os.path.exists(paper_path):
-            raise FileNotFoundError(f"Paper not found: {paper_path}")
+        if not os.path.exists(doc_path):
+            raise FileNotFoundError(f"Paper not found: {doc_path}")
         
+        # Check if context file exists, if not create it using the appropriate document
         if not os.path.exists(context_path):
             print("No context path, making new file")
             os.makedirs(os.path.dirname(context_path), exist_ok=True)
-            with open(paper_path, 'r', encoding='utf-8') as f:
+            with open(doc_path, 'r', encoding='utf-8') as f:
                 paper_content = f.read().strip()
             with open(context_path, 'w', encoding='utf-8') as f:
                 f.write(paper_content + "\n---------------------------------------------------------------------")
 
+        # Read and return the context file content
         with open(context_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
     
@@ -82,7 +91,7 @@ class ModelClient:
         os.makedirs(os.path.dirname(context_path), exist_ok=True)
         with open(context_path, 'w', encoding='utf-8') as f:
             print("Saving context!")
-            f.write(new_context)
+            f.write(new_context + "\n")
     
     def format_context(self, existing_context, query, response):
         return f"{existing_context}\n\nQuery: {query}\n\nResponse: {response}"
@@ -138,7 +147,7 @@ class OpenAIClient(ModelClient):
     
     def generate_chat_response(self, query, paper_id, **kwargs):
         try:
-            context = self.get_context(paper_id)
+            context = self.get_context(paper_id, full=True)
             clean_context = clean_markdown(context)
 
             SYSTEM_PROMPT = """You are a helpful assistant that concisely summarizes scientific papers. 
@@ -269,6 +278,8 @@ class HuggingFaceClient(ModelClient):
             )
             
             generated_text = result[0]["generated_text"]
+            if generated_text.startswith(prompt):
+                generated_text = generated_text[len(prompt):].strip()
             
             self._unload_model()
                 
@@ -288,7 +299,7 @@ class HuggingFaceClient(ModelClient):
         
         Please summarize the following paper in markdown format:
     
-        {text[:5000]}
+        {text}
 
         Summary:"""
         
@@ -299,22 +310,22 @@ class HuggingFaceClient(ModelClient):
             context = self.get_context(paper_id)
             
             clean_context = clean_markdown(context)
-            if len(clean_context) > 6000:
-                clean_context = clean_context[:6000] + "..."
-
-            prompt = f"""<|system|>
+            if len(clean_context) > 3000:
+                clean_context = clean_context[-3000:] + "..."
+            
+            prompt = f"""
 You are a helpful assistant that summarizes scientific papers. 
-Your task is to answer questions about the paper, including giving context to specific parts of the text and extrapolating for the user.
+Your task is to answer questions about the paper summarized below, including giving context to specific parts of the text and extrapolating for the user.
 Answer with friendly, conversational language, and make the user feel comfortable talking about anything related to the paper.
 If you don't know the answer, say so - don't make things up.
+BE SUCCINCT.
 
-<|user|>
-Paper Content:
 {clean_context}
 
 User Question: {query}
+Model Answer: """
 
-<|assistant|>"""
+            print(prompt)
             
             response = self.generate_text(prompt, **kwargs)
             
@@ -491,12 +502,12 @@ class PaperClipClient(ModelClient):
     def generate_chat_response(self, query, paper_id, **kwargs):
         try:
             context = self.get_context(paper_id)
-            clean_context = clean_markdown(context)
+            clean_context = clean_markdown(context)            
             if len(clean_context) > 5000:
                 clean_context = clean_context[:5000] + "..."
                 
-            prompt = f"# Paper\n\n{clean_context}\n\n# Question\n\n{query}\n\n# Answer\n\n"
-            
+            prompt = f"{clean_context}\nAnswer the following question about the paper: {query}\n"
+            print(prompt)
             response = self.generate_text(prompt, **kwargs)
             
             new_context = self.format_context(context, query, response)
