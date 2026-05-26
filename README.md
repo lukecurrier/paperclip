@@ -1,4 +1,4 @@
-# PaperClip README
+# PaperClip
 
 ## Finetuning
 In order to run the finetuning script, run the following on a GPU:
