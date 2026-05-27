@@ -29,3 +29,13 @@ The code related to the different models we used, their finetuning process and t
     - `/benchmark_files`:
         - `filtered_articles.csv`: CSV file for the benchmark containing around 2000 ArXiv AI research papers' text and respective summaries (scraped from `arxvi_ai.csv`)
         - `usb.csv`: CSV file for the [Unified Summarization Benchmark](https://huggingface.co/datasets/kundank/usb) which contains the text of wikipedia articles across 8 different domains and their respective summaries
+
+
+## Product Demo Screenshots
+Intro page
+<img width="2736" height="1480" alt="image" src="https://github.com/user-attachments/assets/e57e4548-4748-4cce-98aa-e055d4b05f7e" />
+Summarization
+<img width="2634" height="1520" alt="image" src="https://github.com/user-attachments/assets/167d3384-fecc-41e5-81c2-69923a2a02ee" />
+Discussion
+<img width="2470" height="1666" alt="image" src="https://github.com/user-attachments/assets/d59a6698-2dc6-4b18-b37d-7707c359b367" />
+
