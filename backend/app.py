@@ -219,40 +219,6 @@ def serve_pdf(paper_id):
 @app.route('/api/markdown/<path:filepath>', methods=['GET'])
 def serve_markdown(filepath):
     return send_from_directory(PAPERS_DIR, filepath)
-
-@app.route('/api/regenerate-summary', methods=['POST'])
-def regenerate_summary():
-    try:
-        data = request.json or {}
-
-        paper_id = data.get("paperId")
-        model_id = data.get("modelId")
-
-        if not paper_id:
-            return jsonify({"error": "Missing paperId"}), 400
-
-        # load content
-        content, _ = paper_service.get_paper_with_summary(
-            paper_id,
-            summary_service
-        )
-
-        # 🔥 ALWAYS recompute
-        summary = summary_service.summarize(
-            markdown_content=content,
-            model_id=model_id
-        )
-
-        return jsonify({
-            "success": True,
-            "summary": summary,
-            "model_used": model_id,
-            "regenerated": True
-        })
-
-    except Exception as e:
-        logger.exception(e)
-        return jsonify({"error": str(e)}), 500
     
 if __name__ == "__main__":
     app.run(debug=True, port=8000)

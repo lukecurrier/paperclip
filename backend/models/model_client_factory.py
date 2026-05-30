@@ -5,6 +5,7 @@ from ..models_config import get_model_config
 
 class ModelClientFactory:
 
+    # Essentially decides which client based off the model we want to use
     @staticmethod
     def get_client(model_id=None):
         config = get_model_config(model_id)
@@ -15,6 +16,7 @@ class ModelClientFactory:
             return OpenAIClient(config)
         elif provider == "huggingface":
             return HuggingFaceClient(config)
+        # Finetuned model
         elif provider == "paperclip":
             return PaperClipClient(config)
 

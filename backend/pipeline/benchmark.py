@@ -14,7 +14,6 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 bert_model = AutoModel.from_pretrained("bert-base-uncased").to(device)
 bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-
 def get_similarity(pred, reference):
     def embed(text):
         tokens = bert_tokenizer(
@@ -64,7 +63,6 @@ def run_local(model, tokenizer, text):
 
     MAX_LEN = min(1024, getattr(model.config, "n_positions", 1024))
 
-    # STEP 1: tokenize with HARD truncation
     inputs = tokenizer(
         text,
         return_tensors="pt",
@@ -75,18 +73,12 @@ def run_local(model, tokenizer, text):
     input_ids = inputs["input_ids"]
     attention_mask = inputs["attention_mask"]
 
-    # STEP 2: FORCE CLIP (this is the real safety net)
     input_ids = input_ids[:, -MAX_LEN:]
     attention_mask = attention_mask[:, -MAX_LEN:]
 
-    # STEP 3: DEBUG (DO NOT SKIP THIS)
-    print("DEBUG seq_len =", input_ids.shape[1], "max =", MAX_LEN)
-
-    # STEP 4: ensure device consistency
     input_ids = input_ids.to(model.device)
     attention_mask = attention_mask.to(model.device)
 
-    # STEP 5: generate safely
     with torch.no_grad():
         outputs = model.generate(
             input_ids=input_ids,
@@ -114,7 +106,6 @@ def run_benchmark(mode, model, tokenizer, csv_file, text_key, summary_key):
         text = row[text_key][:8000]
         reference = row[summary_key]
 
-        # model inference
         if mode == "openai":
             pred = run_openai(model, text)
         else:
