@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = "http://127.0.0.1:8000";
 console.log("API_BASE_URL is:", API_BASE_URL);
 
 interface Model {
@@ -17,7 +17,10 @@ interface ModelSelectorProps {
   onModelChange: (modelId: string) => void;
 }
 
-const SimpleModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onModelChange }) => {
+const SimpleModelSelector: React.FC<ModelSelectorProps> = ({
+  selectedModel,
+  onModelChange,
+}) => {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,29 +30,29 @@ const SimpleModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onMo
       try {
         setLoading(true);
         const response = await fetch(`${API_BASE_URL}/api/models`);
-        
+
         if (!response.ok) {
           throw new Error(`Failed to fetch models: ${response.status}`);
         }
-        
+
         const data = await response.json();
         setModels(data);
       } catch (error) {
-        console.error('Error fetching models:', error);
-        setError('Failed to load models');
+        console.error("Error fetching models:", error);
+        setError("Failed to load models");
         setModels([
           {
             id: "llama-3.1-8b",
             name: "Llama 3.1 8B",
             description: "Larger model with better reasoning",
-            provider: "openai"
+            provider: "openai",
           },
           {
             id: "llama-3.2-1b",
             name: "Llama 3.2 1B",
             description: "Smaller, faster model",
-            provider: "huggingface"
-          }
+            provider: "huggingface",
+          },
         ]);
       } finally {
         setLoading(false);
@@ -75,8 +78,8 @@ const SimpleModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onMo
   return (
     <div className="flex items-center gap-2">
       <span className="text-sm text-gray-500">Model:</span>
-      <select 
-        value={selectedModel} 
+      <select
+        value={selectedModel}
         onChange={handleModelChange}
         className="h-9 px-3 py-1 rounded border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >

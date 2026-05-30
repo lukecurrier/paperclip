@@ -9,11 +9,15 @@ import traceback
 import json
 import logging
 
-from .models_config import get_available_models
+from .models_config import get_model_config, get_available_models
 from .services.chat_service import ChatService
 from .services.summary_service import SummaryService
 from .services.paper_service import PaperService
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
+def get_embedding(text: str):
+    return embedding_model.encode(text).tolist()
 
 app = Flask(__name__)
 CORS(app)
@@ -24,23 +28,19 @@ logger = logging.getLogger("paperclip")
 PAPERS_DIR = os.path.join(os.path.dirname(__file__), "papers")
 os.makedirs(PAPERS_DIR, exist_ok=True)
 
-chat_service = ChatService()
+chat_service = ChatService(embedding_fn=get_embedding)
 summary_service = SummaryService()
-paper_service = PaperService()
+paper_service = PaperService(embedding_fn=get_embedding)
 
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# -----------------------
-# STATUS SYSTEM (ROBUST)
-# -----------------------
 def status_path(paper_id):
     return os.path.join(PAPERS_DIR, paper_id, "status.json")
-
 
 def write_status(paper_id, status, progress=0.0, message=""):
     try:
         path = status_path(paper_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-
         tmp_path = path + ".tmp"
         with open(tmp_path, "w") as f:
             json.dump({
@@ -50,14 +50,11 @@ def write_status(paper_id, status, progress=0.0, message=""):
             }, f)
 
         os.replace(tmp_path, path)
-
     except Exception as e:
         logger.exception(f"[{paper_id}] Failed writing status: {e}")
 
-
 def read_status(paper_id):
     path = status_path(paper_id)
-
     try:
         if not os.path.exists(path):
             return {
@@ -65,10 +62,8 @@ def read_status(paper_id):
                 "progress": 0.0,
                 "message": "not started"
             }
-
         with open(path, "r") as f:
             return json.load(f)
-
     except Exception:
         return {
             "status": "error",
@@ -77,21 +72,13 @@ def read_status(paper_id):
         }
 
 
-# -----------------------
-# MODELS
-# -----------------------
 @app.route('/api/models', methods=['GET'])
 def get_models():
     return jsonify(get_available_models())
 
-
-# -----------------------
-# STATUS
-# -----------------------
 @app.route('/api/check-progress/<paper_id>', methods=['GET'])
 def check_progress(paper_id):
     return jsonify(read_status(paper_id))
-
 
 @app.route('/api/check-paper/<paper_id>', methods=['GET'])
 def check_paper(paper_id):
@@ -105,10 +92,6 @@ def check_paper(paper_id):
         "pdfPath": pdf_path
     })
 
-
-# -----------------------
-# PAPER FETCH
-# -----------------------
 @app.route('/api/paper/<paper_id>', methods=['GET'])
 def get_paper(paper_id):
     try:
@@ -131,9 +114,6 @@ def get_paper(paper_id):
         return jsonify({'error': str(e)}), 500
 
 
-# -----------------------
-# PROCESS PDF
-# -----------------------
 @app.route('/api/process-pdf', methods=['POST'])
 def process_pdf():
     try:
@@ -147,14 +127,10 @@ def process_pdf():
         md_path = os.path.join(paper_dir, f"{paper_id}.md")
         pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
 
-        # ✅ STEP 1: If already fully processed → SKIP EVERYTHING
-        if os.path.exists(md_path) and os.path.exists(pdf_path):
-            return jsonify({
-                "success": True,
-                "skipped": True,
-                "message": "Paper already processed",
-                "paperId": paper_id
-            }), 200
+        if os.path.exists(paper_dir):
+            shutil.rmtree(paper_dir)
+
+        os.makedirs(paper_dir, exist_ok=True)
 
         # otherwise continue processing
         write_status(paper_id, "processing", 0.1, "upload received")
@@ -194,10 +170,6 @@ def process_pdf():
         logger.exception(e)
         return jsonify({"error": str(e)}), 500
 
-
-# -----------------------
-# CHAT
-# -----------------------
 @app.route('/api/chat', methods=['POST'])
 def chat_endpoint():
     try:
@@ -218,13 +190,10 @@ def chat_endpoint():
                 "status": status
             }), 409
 
-        # 🔥 NEW: route model config
-        model_config = get_model_config(model_id)
-
         result = chat_service.chat(
             query=query,
             paper_id=paper_id,
-            model_config=model_config   # 👈 pass full config
+            model_id=model_id
         )
 
         return jsonify({
@@ -237,10 +206,6 @@ def chat_endpoint():
         logger.exception(e)
         return jsonify({"error": str(e)}), 500
 
-
-# -----------------------
-# FILES
-# -----------------------
 @app.route('/api/pdf/<paper_id>', methods=['GET'])
 def serve_pdf(paper_id):
     path = os.path.join(PAPERS_DIR, paper_id, f"{paper_id}.pdf")

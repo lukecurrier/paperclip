@@ -4,15 +4,18 @@ import fitz
 import re
 import json
 import logging
+import numpy as np
 
 
 class PaperService:
 
     BASE_DIR = Path(__file__).parent.parent / "papers"
 
-    def __init__(self):
+    def __init__(self, embedding_fn=None):
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.embedding_fn = embedding_fn  # IMPORTANT
 
+    # -----------------------
     def create_paper_directory(self, paper_id):
         paper_dir = self.BASE_DIR / paper_id
         paper_dir.mkdir(parents=True, exist_ok=True)
@@ -36,21 +39,19 @@ class PaperService:
         return text.strip()
 
     # -----------------------
-    def chunk_text(self, text: str, max_size=1500):
-        paragraphs = text.split("\n\n")
-
+    def chunk_text(self, text, max_words=250):
+        sentences = text.split(". ")
         chunks = []
-        current = ""
+        current = []
 
-        for p in paragraphs:
-            if len(current) + len(p) > max_size:
-                chunks.append(current.strip())
-                current = p
-            else:
-                current += "\n\n" + p
+        for s in sentences:
+            current.append(s)
+            if len(current) >= max_words:
+                chunks.append(". ".join(current))
+                current = []
 
-        if current.strip():
-            chunks.append(current.strip())
+        if current:
+            chunks.append(". ".join(current))
 
         return chunks
 
@@ -66,30 +67,37 @@ class PaperService:
 
         chunks = self.chunk_text(clean)
 
-        # save markdown
+        # save text
         (paper_dir / f"{paper_id}.md").write_text(clean, encoding="utf-8")
+        (paper_dir / "chunks.json").write_text(json.dumps(chunks, indent=2))
 
-        # save chunks
-        (paper_dir / "chunks.json").write_text(
-            json.dumps(chunks, indent=2),
-            encoding="utf-8"
-        )
+        # -----------------------
+        # BUILD EMBEDDINGS (NEW)
+        # -----------------------
+        embeddings = []
 
-        self.logger.info(f"[{paper_id}] processed with {len(chunks)} chunks")
+        if self.embedding_fn is None:
+            raise ValueError("embedding_fn not provided to PaperService")
 
-        return {
-            "paper_id": paper_id,
-            "chunks": len(chunks)
-        }
+        for c in chunks:
+            emb = self.embedding_fn(c)
+            embeddings.append(emb)
+
+        np.save(paper_dir / "embeddings.npy", np.array(embeddings, dtype="float32"))
+
+        self.logger.info(f"[{paper_id}] processed {len(chunks)} chunks + embeddings")
+
+        return {"paper_id": paper_id, "chunks": len(chunks)}
 
     # -----------------------
     def load_chunks(self, paper_id):
         path = self.BASE_DIR / paper_id / "chunks.json"
-
-        if not path.exists():
-            raise FileNotFoundError("Paper not processed yet")
-
         return json.loads(path.read_text())
+
+    # -----------------------
+    def load_embeddings(self, paper_id):
+        path = self.BASE_DIR / paper_id / "embeddings.npy"
+        return np.load(path)
     
     def get_paper_with_summary(self, paper_id, summary_service):
         paper_dir = self.BASE_DIR / paper_id

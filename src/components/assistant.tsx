@@ -1,24 +1,45 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { UploadCloud, BookOpen, MessageSquare, FileText, BookOpenCheck } from 'lucide-react';
-import SimpleModelSelector from './simplemodelselector'; 
+import React, { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  UploadCloud,
+  BookOpen,
+  MessageSquare,
+  FileText,
+  BookOpenCheck,
+} from "lucide-react";
+import SimpleModelSelector from "./simplemodelselector";
+import { useRef } from "react";
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = "http://127.0.0.1:8000";
 
-const LoadingBar = ({ progress = 0, message = '' }: { progress: number; message: string }) => (
+const LoadingBar = ({
+  progress = 0,
+  message = "",
+}: {
+  progress: number;
+  message: string;
+}) => (
   <div className="mt-4 p-4 bg-gray-50 rounded-lg">
     <div className="flex justify-between items-center mb-2">
       <span className="text-sm text-gray-600">{message}</span>
-      <span className="text-sm text-gray-600">{Math.round(progress * 100)}%</span>
+      <span className="text-sm text-gray-600">
+        {Math.round(progress * 100)}%
+      </span>
     </div>
     <div className="w-full bg-gray-200 rounded-full h-2.5">
-      <div 
-        className="bg-blue-500 h-2.5 rounded-full transition-all duration-300" 
+      <div
+        className="bg-blue-500 h-2.5 rounded-full transition-all duration-300"
         style={{ width: `${progress * 100}%` }}
       ></div>
     </div>
@@ -27,21 +48,25 @@ const LoadingBar = ({ progress = 0, message = '' }: { progress: number; message:
 
 const Assistant = () => {
   const [file, setFile] = useState<File | null>(null);
-  const [paperId, setPaperId] = useState<string>('');
+  const [paperId, setPaperId] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
-  const [processingMessage, setProcessingMessage] = useState('');
-  const [currentTab, setCurrentTab] = useState('upload');
-  const [paperContent, setPaperContent] = useState('');
-  const [summary, setSummary] = useState('');
-  const [messages, setMessages] = useState<Array<{sender: string, content: string}>>([]);
-  const [userMessage, setUserMessage] = useState('');
-  const [pdfUrl, setPdfUrl] = useState('');
+  const [processingMessage, setProcessingMessage] = useState("");
+  const [currentTab, setCurrentTab] = useState("upload");
+  const [paperContent, setPaperContent] = useState("");
+  const [summary, setSummary] = useState("");
+  const [messages, setMessages] = useState<
+    Array<{ sender: string; content: string }>
+  >([]);
+  const [userMessage, setUserMessage] = useState("");
+  const [pdfUrl, setPdfUrl] = useState("");
   const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini');
+  const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
 
   useEffect(() => {
-    const savedModel = localStorage.getItem('selectedModel');
+    const savedModel = localStorage.getItem("selectedModel");
     if (savedModel) {
       setSelectedModel(savedModel);
     }
@@ -49,61 +74,22 @@ const Assistant = () => {
 
   // Update localStorage when model changes
   useEffect(() => {
-    localStorage.setItem('selectedModel', selectedModel);
-  }, [selectedModel]);
-
-  useEffect(() => {
-    // Check for paper data if we already have a paperId
-    const checkForExistingPaper = async () => {
-      if (paperId) {
-        const exists = await checkExistingPaper(paperId);
-        if (exists) {
-          // Fetch the paper data
-          try {
-            const response = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
-            if (response.ok) {
-              const data = await response.json();
-              setPaperContent(data.content || '');
-              setSummary(data.summary || '');
-              setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
-              setCurrentTab('summary');
-            }
-          } catch (error) {
-            console.error('Error fetching paper data:', error);
-          }
-        }
-      }
-    };
-    
-    checkForExistingPaper();
-  }, [paperId]);
+    localStorage.setItem("selectedModel", selectedModel);
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [selectedModel, messages]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (uploadedFile) {
-      if (!uploadedFile.type.includes('pdf')) {
-        alert('Please upload a PDF file');
+      if (!uploadedFile.type.includes("pdf")) {
+        alert("Please upload a PDF file");
         return;
       }
-      
+
       setFile(uploadedFile);
-      
+
       const paperId = uploadedFile.name.replace(/\.[^/.]+$/, "");
       setPaperId(paperId);
-    }
-  };
-
-  const checkExistingPaper = async (paperId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/check-paper/${paperId}`);
-      if (response.ok) {
-        const data = await response.json();
-        return data.exists;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error checking existing paper:', error);
-      return false;
     }
   };
 
@@ -118,9 +104,9 @@ const Assistant = () => {
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/regenerate-summary`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           paperId,
@@ -136,204 +122,171 @@ const Assistant = () => {
 
       // update UI with new summary
       setSummary(data.summary);
-
     } catch (err) {
       console.error(err);
     } finally {
       setIsRegeneratingSummary(false);
     }
-};
+  };
 
   const processPaper = async () => {
     if (!file || !paperId) return;
-    
+
     setIsProcessing(true);
     setProcessingProgress(0);
-    setProcessingMessage('Checking if paper already exists...');
-    
+    setProcessingMessage("Uploading PDF...");
+
     try {
-      // Check if paper already exists
-      const paperExists = await checkExistingPaper(paperId);
-      
-      if (paperExists) {
-        setProcessingProgress(0.2);
-        setProcessingMessage('Paper already processed, loading content...');
-        
-        // Fetch existing paper data
-        const response = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        setProcessingProgress(0.6);
-        setProcessingMessage('Loading paper content...');
-        
-        const data = await response.json();
-        setPaperContent(data.content);
-        setSummary(data.summary);
-        setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
-        
-        setProcessingProgress(0.9);
-        setProcessingMessage('Preparing interface...');
-        
-        setTimeout(() => {
-          setProcessingProgress(1);
-          setProcessingMessage('Paper loaded successfully!');
-          setCurrentTab('discuss'); // Go directly to the discuss tab
-        }, 500);
-      } else {
-        // Paper doesn't exist, process it
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('paperId', paperId);
-          formData.append('modelId', selectedModel);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("paperId", paperId);
+      formData.append("modelId", selectedModel);
 
-          setProcessingProgress(0.05);
-          setProcessingMessage("Uploading PDF...");
+      const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
+        method: "POST",
+        body: formData,
+      });
 
-          const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-
-          if (!data.success) {
-            throw new Error(data.error || 'Unknown error processing PDF');
-          }
-
-          // ---------------------------
-          // REAL BACKEND POLLING ONLY
-          // ---------------------------
-
-          let pollInterval: NodeJS.Timeout | null = null;
-          let isDone = false;
-
-          const pollStatus = async () => {
-            try {
-              const res = await fetch(`${API_BASE_URL}/api/check-progress/${paperId}`);
-
-              if (!res.ok) return;
-
-              const status = await res.json();
-
-              setProcessingProgress(status.progress ?? 0);
-              setProcessingMessage(status.message ?? "Processing...");
-
-              if (status.status === "complete") {
-                isDone = true;
-
-                if (pollInterval) clearInterval(pollInterval);
-
-                setProcessingProgress(1);
-                setProcessingMessage("Loading paper...");
-
-                const paperRes = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
-                const paperData = await paperRes.json();
-
-                setPaperContent(paperData.content || '');
-                setSummary(paperData.summary || '');
-                setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
-
-                setTimeout(() => {
-                  setCurrentTab('summary');
-                  setIsProcessing(false);
-                }, 500);
-              }
-
-              if (status.status === "failed") {
-                if (pollInterval) clearInterval(pollInterval);
-
-                setIsProcessing(false);
-                setProcessingMessage(status.message || "Failed");
-                alert("Processing failed. Please try again.");
-              }
-
-            } catch (err) {
-              console.error("Polling error:", err);
-            }
-          };
-
-          // start polling immediately
-          pollInterval = setInterval(pollStatus, 2000);
-
-          // optional safety timeout
-          setTimeout(() => {
-            if (!isDone && pollInterval) {
-              clearInterval(pollInterval);
-              setIsProcessing(false);
-              alert("Processing is taking too long. Please try again later.");
-            }
-          }, 180000);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Unknown error");
+      }
+
+      // ---------------------------
+      // REAL BACKEND POLLING ONLY
+      // ---------------------------
+
+      let pollInterval: NodeJS.Timeout | null = null;
+      let isDone = false;
+
+      const pollStatus = async () => {
+        try {
+          const res = await fetch(
+            `${API_BASE_URL}/api/check-progress/${paperId}`,
+          );
+
+          if (!res.ok) return;
+
+          const status = await res.json();
+
+          setProcessingProgress(status.progress ?? 0);
+          setProcessingMessage(status.message ?? "Processing...");
+
+          if (status.status === "complete") {
+            isDone = true;
+
+            if (pollInterval) clearInterval(pollInterval);
+
+            setProcessingProgress(1);
+            setProcessingMessage("Loading paper...");
+
+            const paperRes = await fetch(
+              `${API_BASE_URL}/api/paper/${paperId}`,
+            );
+            const paperData = await paperRes.json();
+
+            setPaperContent(paperData.content || "");
+            setSummary(paperData.summary || "");
+            setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
+
+            setTimeout(() => {
+              setCurrentTab("summary");
+              setIsProcessing(false);
+            }, 500);
+          }
+
+          if (status.status === "failed") {
+            if (pollInterval) clearInterval(pollInterval);
+
+            setIsProcessing(false);
+            setProcessingMessage(status.message || "Failed");
+            alert("Processing failed. Please try again.");
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      };
+
+      // start polling immediately
+      pollInterval = setInterval(pollStatus, 2000);
+
+      // optional safety timeout
+      setTimeout(() => {
+        if (!isDone && pollInterval) {
+          clearInterval(pollInterval);
+          setIsProcessing(false);
+          alert("Processing is taking too long. Please try again later.");
+        }
+      }, 180000);
     } catch (error) {
-      console.error('Error processing PDF:', error);
-      alert('Failed to process PDF. Please try again.');
+      console.error("Error processing PDF:", error);
+      alert("Failed to process PDF. Please try again.");
       setIsProcessing(false);
       setProcessingProgress(0);
-      setProcessingMessage('');
+      setProcessingMessage("");
     }
   };
 
   const handleSendMessage = async () => {
     if (!userMessage.trim()) return;
-    
-    const newMessages = [
-      ...messages,
-      { sender: 'user', content: userMessage }
-    ];
-    
+
+    const newMessages = [...messages, { sender: "user", content: userMessage }];
+
     setMessages(newMessages);
     const currentMessage = userMessage;
-    setUserMessage('');
-    
+    setUserMessage("");
+
+    // ✅ show loader
+    setIsThinking(true);
+
     try {
-      // Call the backend API to get a response to the question
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           query: currentMessage,
           paperId: paperId,
-          modelId: selectedModel // Include the selected model ID
+          modelId: selectedModel,
         }),
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
+
       const data = await response.json();
-      
+
       setMessages([
         ...newMessages,
-        { 
-          sender: 'ai', 
-          content: data.response
-        }
+        {
+          sender: "ai",
+          content: data.response,
+        },
       ]);
     } catch (error) {
-      console.error('Error getting response:', error);
+      console.error("Error getting response:", error);
+
       setMessages([
         ...newMessages,
-        { 
-          sender: 'ai', 
-          content: "I'm sorry, I encountered an error processing your question. Please try again."
-        }
+        {
+          sender: "ai",
+          content:
+            "I'm sorry, I encountered an error processing your question.",
+        },
       ]);
+    } finally {
+      // ✅ hide loader
+      setIsThinking(false);
     }
   };
-  
+
   // Handle keyboard events in the textarea
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // If Enter is pressed without holding Cmd (or Ctrl), send the message
-    if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault(); // Prevent default behavior (new line)
       handleSendMessage();
     }
@@ -347,34 +300,42 @@ const Assistant = () => {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="text-2xl">PaperClip</CardTitle>
-            <CardDescription>Upload an AI research paper to summarize and discuss</CardDescription>
+            <CardDescription>
+              Upload an AI research paper to summarize and discuss
+            </CardDescription>
           </div>
-          <SimpleModelSelector 
-            selectedModel={selectedModel} 
-            onModelChange={handleModelChange} 
+          <SimpleModelSelector
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
           />
         </CardHeader>
-        
+
         <CardContent>
           <Tabs value={currentTab} onValueChange={setCurrentTab}>
             <TabsList className="grid grid-cols-3 mb-6">
               <TabsTrigger value="upload">Upload</TabsTrigger>
-              <TabsTrigger value="summary" disabled={!summary}>Summary</TabsTrigger>
-              <TabsTrigger value="discuss" disabled={!summary}>Discuss</TabsTrigger>
+              <TabsTrigger value="summary" disabled={!summary}>
+                Summary
+              </TabsTrigger>
+              <TabsTrigger value="discuss" disabled={!summary}>
+                Discuss
+              </TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="upload" className="space-y-4">
               {isProcessing && (
-                <LoadingBar 
-                  progress={processingProgress} 
+                <LoadingBar
+                  progress={processingProgress}
                   message={processingMessage}
                 />
               )}
-              
+
               <div className="border-2 border-dashed rounded-lg p-12 text-center">
                 <div className="flex flex-col items-center gap-2">
                   <UploadCloud className="h-10 w-10 text-gray-400" />
-                  <p className="text-sm text-gray-500">Drag and drop or click to upload a PDF</p>
+                  <p className="text-sm text-gray-500">
+                    Drag and drop or click to upload a PDF
+                  </p>
                   <input
                     type="file"
                     id="file-upload"
@@ -384,14 +345,16 @@ const Assistant = () => {
                   />
                   <Button
                     variant="outline"
-                    onClick={() => document.getElementById('file-upload')?.click()}
+                    onClick={() =>
+                      document.getElementById("file-upload")?.click()
+                    }
                     className="mt-2"
                   >
                     Select File
                   </Button>
                 </div>
               </div>
-              
+
               {file && (
                 <div className="bg-gray-100 p-4 rounded-lg">
                   <div className="flex items-center justify-between">
@@ -399,18 +362,18 @@ const Assistant = () => {
                       <FileText className="h-5 w-5 text-blue-500" />
                       <span>{file.name}</span>
                     </div>
-                    <Button 
-                      onClick={processPaper} 
+                    <Button
+                      onClick={processPaper}
                       disabled={isProcessing}
                       className="bg-blue-600 hover:bg-blue-700"
                     >
-                      {isProcessing ? 'Processing...' : 'Process Paper'}
+                      {isProcessing ? "Processing..." : "Process Paper"}
                     </Button>
                   </div>
                 </div>
               )}
             </TabsContent>
-            
+
             <TabsContent value="summary" className="space-y-4">
               <div className="space-y-6">
                 <div className="border rounded-lg p-6 shadow-sm bg-white">
@@ -419,45 +382,50 @@ const Assistant = () => {
                       <BookOpen className="h-6 w-6 text-blue-600" />
                       <h2 className="text-xl font-bold">Paper Summary</h2>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={regenerateSummary}
-                      disabled={isRegeneratingSummary}
-                      className="flex items-center gap-2"
-                    >
-                      {isRegeneratingSummary ? (
-                        <>
-                          <div className="h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                          Regenerating...
-                        </>
-                      ) : (
-                        <>
-                          <BookOpenCheck className="h-4 w-4" />
-                          Regenerate Summary
-                        </>
-                      )}
-                    </Button>
                   </div>
-                  
+
                   {!summary ? (
                     <div className="flex items-center justify-center h-40 bg-gray-50 rounded-md">
                       <p className="text-gray-500">Loading summary...</p>
                     </div>
                   ) : (
                     <div className="prose prose-blue max-w-none">
-                      {summary.split('\n').map((line, i) => {
+                      {summary.split("\n").map((line, i) => {
                         // Handle bold text with asterisks (like **text**)
-                        const processedLine = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                        
+                        const processedLine = line.replace(
+                          /\*\*(.*?)\*\*/g,
+                          "<strong>$1</strong>",
+                        );
+
                         // Handle headings
-                        if (line.startsWith('# ')) {
-                          return <h1 key={i} className="text-2xl font-bold mt-6 mb-4 text-blue-800">{line.substring(2)}</h1>;
-                        } else if (line.startsWith('## ')) {
-                          return <h2 key={i} className="text-xl font-bold mt-5 mb-3 text-blue-700">{line.substring(3)}</h2>;
-                        } else if (line.startsWith('### ')) {
-                          return <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-blue-600">{line.substring(4)}</h3>;
-                        } 
+                        if (line.startsWith("# ")) {
+                          return (
+                            <h1
+                              key={i}
+                              className="text-2xl font-bold mt-6 mb-4 text-blue-800"
+                            >
+                              {line.substring(2)}
+                            </h1>
+                          );
+                        } else if (line.startsWith("## ")) {
+                          return (
+                            <h2
+                              key={i}
+                              className="text-xl font-bold mt-5 mb-3 text-blue-700"
+                            >
+                              {line.substring(3)}
+                            </h2>
+                          );
+                        } else if (line.startsWith("### ")) {
+                          return (
+                            <h3
+                              key={i}
+                              className="text-lg font-bold mt-4 mb-2 text-blue-600"
+                            >
+                              {line.substring(4)}
+                            </h3>
+                          );
+                        }
                         // Handle numbered lists (looking for patterns like "1. ", "2. ", etc.)
                         else if (/^\d+\.\s/.test(line)) {
                           // Extract the number and the content
@@ -468,63 +436,139 @@ const Assistant = () => {
                             return (
                               <div key={i} className="flex gap-2 my-1">
                                 <span className="font-semibold">{number}.</span>
-                                <span dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                                <span
+                                  dangerouslySetInnerHTML={{
+                                    __html: content.replace(
+                                      /\*\*(.*?)\*\*/g,
+                                      "<strong>$1</strong>",
+                                    ),
+                                  }}
+                                />
                               </div>
                             );
                           }
-                          return <p key={i} className="my-2 text-gray-700 leading-relaxed">{line}</p>;
+                          return (
+                            <p
+                              key={i}
+                              className="my-2 text-gray-700 leading-relaxed"
+                            >
+                              {line}
+                            </p>
+                          );
                         }
                         // Handle bullet points
-                        else if (line.startsWith('* ') || line.startsWith('- ')) {
+                        else if (
+                          line.startsWith("* ") ||
+                          line.startsWith("- ")
+                        ) {
                           return (
                             <div key={i} className="flex gap-2 my-1 ml-5">
                               <span>•</span>
-                              <span dangerouslySetInnerHTML={{ __html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                              <span
+                                dangerouslySetInnerHTML={{
+                                  __html: line
+                                    .substring(2)
+                                    .replace(
+                                      /\*\*(.*?)\*\*/g,
+                                      "<strong>$1</strong>",
+                                    ),
+                                }}
+                              />
                             </div>
                           );
-                        } else if (line.startsWith('  * ') || line.startsWith('  - ')) {
+                        } else if (
+                          line.startsWith("  * ") ||
+                          line.startsWith("  - ")
+                        ) {
                           return (
                             <div key={i} className="flex gap-2 my-1 ml-10">
                               <span>•</span>
-                              <span dangerouslySetInnerHTML={{ __html: line.substring(4).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                              <span
+                                dangerouslySetInnerHTML={{
+                                  __html: line
+                                    .substring(4)
+                                    .replace(
+                                      /\*\*(.*?)\*\*/g,
+                                      "<strong>$1</strong>",
+                                    ),
+                                }}
+                              />
                             </div>
                           );
                         }
                         // Handle code blocks
-                        else if (line.startsWith('```')) {
-                          return <div key={i} className="bg-gray-100 p-2 rounded my-2 font-mono text-sm">{line.substring(3)}</div>;
-                        } else if (line.startsWith('`') && line.endsWith('`')) {
-                          return <code key={i} className="bg-gray-100 px-1 rounded text-sm font-mono">{line.substring(1, line.length - 1)}</code>;
+                        else if (line.startsWith("```")) {
+                          return (
+                            <div
+                              key={i}
+                              className="bg-gray-100 p-2 rounded my-2 font-mono text-sm"
+                            >
+                              {line.substring(3)}
+                            </div>
+                          );
+                        } else if (line.startsWith("`") && line.endsWith("`")) {
+                          return (
+                            <code
+                              key={i}
+                              className="bg-gray-100 px-1 rounded text-sm font-mono"
+                            >
+                              {line.substring(1, line.length - 1)}
+                            </code>
+                          );
                         }
                         // Handle blockquotes
-                        else if (line.startsWith('> ')) {
-                          return <blockquote key={i} className="border-l-4 border-gray-300 pl-4 italic my-2" dangerouslySetInnerHTML={{ __html: line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></blockquote>;
+                        else if (line.startsWith("> ")) {
+                          return (
+                            <blockquote
+                              key={i}
+                              className="border-l-4 border-gray-300 pl-4 italic my-2"
+                              dangerouslySetInnerHTML={{
+                                __html: line
+                                  .substring(2)
+                                  .replace(
+                                    /\*\*(.*?)\*\*/g,
+                                    "<strong>$1</strong>",
+                                  ),
+                              }}
+                            ></blockquote>
+                          );
                         }
                         // Handle empty lines
-                        else if (line.trim() === '') {
+                        else if (line.trim() === "") {
                           return <div key={i} className="my-2"></div>;
-                        } 
+                        }
                         // Handle regular paragraphs
                         else {
-                          return <p key={i} className="my-2 text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>;
+                          return (
+                            <p
+                              key={i}
+                              className="my-2 text-gray-700 leading-relaxed"
+                              dangerouslySetInnerHTML={{
+                                __html: line.replace(
+                                  /\*\*(.*?)\*\*/g,
+                                  "<strong>$1</strong>",
+                                ),
+                              }}
+                            ></p>
+                          );
                         }
                       })}
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex justify-between">
                   <Button
                     variant="outline"
-                    onClick={() => setCurrentTab('upload')}
+                    onClick={() => setCurrentTab("upload")}
                     className="flex items-center gap-2"
                   >
                     <UploadCloud className="h-4 w-4" />
                     Upload Different Paper
                   </Button>
-                  
-                  <Button 
-                    onClick={() => setCurrentTab('discuss')}
+
+                  <Button
+                    onClick={() => setCurrentTab("discuss")}
                     className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
                   >
                     <MessageSquare className="h-4 w-4" />
@@ -533,7 +577,7 @@ const Assistant = () => {
                 </div>
               </div>
             </TabsContent>
-            
+
             <TabsContent value="discuss" className="space-y-4">
               <div className="flex gap-4 h-[600px]">
                 {/* PDF Viewer */}
@@ -550,7 +594,7 @@ const Assistant = () => {
                     </div>
                   )}
                 </div>
-                
+
                 {/* Chat Interface */}
                 <div className="w-3/5 flex flex-col">
                   <div className="border rounded-lg p-4 flex-grow overflow-y-auto flex flex-col space-y-4">
@@ -558,16 +602,22 @@ const Assistant = () => {
                       <div className="text-center text-gray-500 my-auto">
                         <MessageSquare className="h-12 w-12 mx-auto opacity-30" />
                         <p className="mt-2">Ask questions about the paper</p>
-                        <p className="text-sm mt-1">Press Enter to send, Cmd+Enter for a new line</p>
+                        <p className="text-sm mt-1">
+                          Press Enter to send, Cmd+Enter for a new line
+                        </p>
                       </div>
                     ) : (
                       messages.map((msg, i) => (
-                        <div key={i} className={`${msg.sender === 'user' ? 'ml-auto' : 'mr-auto'} max-w-[85%]`}>
-                          <div 
+                        <div
+                          ref={chatEndRef}
+                          key={i}
+                          className={`${msg.sender === "user" ? "ml-auto" : "mr-auto"} max-w-[85%]`}
+                        >
+                          <div
                             className={`p-3 rounded-lg ${
-                              msg.sender === 'user' 
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-100 text-gray-800'
+                              msg.sender === "user"
+                                ? "bg-blue-600 text-white"
+                                : "bg-gray-100 text-gray-800"
                             }`}
                           >
                             {msg.content}
@@ -575,8 +625,18 @@ const Assistant = () => {
                         </div>
                       ))
                     )}
+                    {isThinking && (
+                      <div className="flex items-center gap-2 text-gray-500 animate-pulse">
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:150ms]" />
+                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                        <span className="text-sm">
+                          PaperClip is thinking...
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  
+
                   <div className="flex gap-2 mt-4">
                     <Textarea
                       placeholder="Ask about the paper... (Press Enter to send, Cmd+Enter for a new line)"
@@ -585,7 +645,7 @@ const Assistant = () => {
                       onKeyDown={handleKeyDown}
                       className="flex-1 min-h-16"
                     />
-                    <Button 
+                    <Button
                       onClick={handleSendMessage}
                       className="bg-blue-600 hover:bg-blue-700"
                     >

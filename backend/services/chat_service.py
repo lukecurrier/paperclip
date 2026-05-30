@@ -1,13 +1,17 @@
 import logging
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
 from ..models.model_client_factory import ModelClientFactory
 from .paper_service import PaperService
 
 
 class ChatService:
 
-    def __init__(self):
+    def __init__(self, embedding_fn):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.paper_service = PaperService()
+        self.embedding_fn = embedding_fn
 
     # -----------------------
     def chat(self, query, paper_id, model_id=None):
@@ -15,11 +19,16 @@ class ChatService:
         try:
             client = ModelClientFactory.get_client(model_id)
 
-            # load chunks
             chunks = self.paper_service.load_chunks(paper_id)
+            embeddings = self.paper_service.load_embeddings(paper_id)
 
-            # retrieve relevant chunks (simple RAG)
-            context = self.retrieve(query, chunks)
+            if chunks is None or embeddings is None:
+                raise ValueError("Missing chunks or embeddings")
+
+            if len(chunks) == 0 or len(embeddings) == 0:
+                raise ValueError("Empty chunks or embeddings")
+
+            context = self.retrieve(query, chunks, embeddings)
 
             prompt = self.build_prompt(query, context)
 
@@ -35,40 +44,61 @@ class ChatService:
             raise
 
     # -----------------------
-    def retrieve(self, query, chunks, k=3):
-        q = set(query.lower().split())
+    def retrieve(self, query, chunks, embeddings, k=5):
 
-        scored = []
-        for c in chunks:
-            score = len(q & set(c.lower().split()))
+        query_emb = np.array(self.embedding_fn(query))
+        embeddings = np.array(embeddings)
 
-            # boost important sections
-            if "abstract" in c.lower():
-                score += 5
-            if "conclusion" in c.lower():
-                score += 4
-            if "introduction" in c.lower():
-                score += 3
+        query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-8)
+        embeddings = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8)
 
-            scored.append((score, c))
+        scores = embeddings @ query_emb
 
-        scored.sort(reverse=True, key=lambda x: x[0])
+        # IMPORTANT: filter weak matches
+        top_idx = np.argsort(scores)[::-1]
 
-        return "\n\n".join([c for _, c in scored[:k]])
+        filtered = []
+        for i in top_idx:
+            if scores[i] < 0.25:
+                continue
+            filtered.append(chunks[i])
+            if len(filtered) == k:
+                break
+
+        # fallback if nothing passes threshold
+        if not filtered:
+            filtered = [chunks[i] for i in top_idx[:k]]
+
+        return "\n\n---\n\n".join(filtered)
 
     # -----------------------
     def build_prompt(self, query, context):
+
         return f"""
-You are an expert assistant answering questions about an academic paper.
+You are PaperClip, an expert research assistant.
 
-Use ONLY the provided context.
+Your job:
+- Use ONLY the provided context.
+- If the answer is partially in context, you MUST still answer.
+- If the context is weak, infer reasonable explanations from it.
+- Do NOT say "not enough information" unless context is completely unrelated.
 
-If the answer is not in the context, say:
-"The paper does not contain enough information to answer this."
+---
 
-Context:
+CONTEXT:
 {context}
 
-Question:
+---
+
+QUESTION:
 {query}
+
+---
+
+INSTRUCTIONS:
+Explain clearly, simply, and directly.
+
+---
+
+ANSWER:
 """

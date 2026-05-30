@@ -1,12 +1,12 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Research Paper Assistant',
-  description: 'AI-powered tool for understanding research papers',
+  title: "Research Paper Assistant",
+  description: "AI-powered tool for understanding research papers",
 };
 
 export default function RootLayout({

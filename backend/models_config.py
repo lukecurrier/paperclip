@@ -20,7 +20,7 @@ MODEL_CONFIGS = {
     "paperclip": {
         "name": "PaperClip (Fine-Tuned Model)",
         "description": "CPU fine-tuned summarization model",
-        "provider": "local",
+        "provider": "paperclip",
         "model_id": "backend/pipeline/finetuning/cpu_output/final_model",
         "max_tokens": 750,
         "temperature": 0.7
