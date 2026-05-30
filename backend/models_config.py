@@ -1,9 +1,9 @@
 MODEL_CONFIGS = {
-    "llama-3.1-8b": {
-        "name": "Llama 3.1 8B",
-        "description": "OpenAI-hosted large Llama model",
+    "gpt-4o-mini": {
+        "name": "GPT-4o Mini",
+        "description": "OpenAI-hosted large language model",
         "provider": "openai",
-        "model_id": "llama3p1-8b-instruct",
+        "model_id": "gpt-4o-mini",
         "api_key_env": "OPENAI_API_KEY",
         "max_tokens": 750,
         "temperature": 0.4
@@ -18,23 +18,22 @@ MODEL_CONFIGS = {
         "temperature": 0.7
     },
     "paperclip": {
-        "name": "PaperClip (Fine-Tuned Llama 1B)",
-        "description": "Paper-specialized fine-tuned model",
-        "provider": "paperclip",
-        "base_model_id": "meta-llama/Llama-3.2-1B",
-        "model_id": "neharavuri/paperclip-Llama-3.2-1B-finetuned",
-        "api_key_env": "HUGGINGFACE_API_TOKEN",
+        "name": "PaperClip (Fine-Tuned Model)",
+        "description": "CPU fine-tuned summarization model",
+        "provider": "local",
+        "model_id": "backend/pipeline/finetuning/cpu_output/final_model",
         "max_tokens": 750,
         "temperature": 0.7
     }
 }
 
-DEFAULT_MODEL = "llama-3.1-8b"
+DEFAULT_MODEL = "gpt-4o-mini"
 
 def get_model_config(model_id=None):
     if model_id is None:
         model_id = DEFAULT_MODEL
     return MODEL_CONFIGS.get(model_id, MODEL_CONFIGS[DEFAULT_MODEL])
+
 
 def get_available_models():
     return [

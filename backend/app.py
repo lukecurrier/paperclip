@@ -1,241 +1,293 @@
-from flask import Flask, request, jsonify, send_from_directory, send_file, Response
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import os
 import tempfile
 import uuid
 import shutil
 import threading
-from models_config import get_available_models
-from summarize_md import summarize
-from chat import chat
-from convert_pdf import create_paper_directory, convert_pdf_to_markdown
+import traceback
+import json
+import logging
+
+from .models_config import get_available_models
+from .services.chat_service import ChatService
+from .services.summary_service import SummaryService
+from .services.paper_service import PaperService
+
 
 app = Flask(__name__)
-CORS(app) 
+CORS(app)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("paperclip")
 
 PAPERS_DIR = os.path.join(os.path.dirname(__file__), "papers")
 os.makedirs(PAPERS_DIR, exist_ok=True)
 
+chat_service = ChatService()
+summary_service = SummaryService()
+paper_service = PaperService()
+
+
+# -----------------------
+# STATUS SYSTEM (ROBUST)
+# -----------------------
+def status_path(paper_id):
+    return os.path.join(PAPERS_DIR, paper_id, "status.json")
+
+
+def write_status(paper_id, status, progress=0.0, message=""):
+    try:
+        path = status_path(paper_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump({
+                "status": status,
+                "progress": progress,
+                "message": message
+            }, f)
+
+        os.replace(tmp_path, path)
+
+    except Exception as e:
+        logger.exception(f"[{paper_id}] Failed writing status: {e}")
+
+
+def read_status(paper_id):
+    path = status_path(paper_id)
+
+    try:
+        if not os.path.exists(path):
+            return {
+                "status": "not_found",
+                "progress": 0.0,
+                "message": "not started"
+            }
+
+        with open(path, "r") as f:
+            return json.load(f)
+
+    except Exception:
+        return {
+            "status": "error",
+            "progress": 0.0,
+            "message": "corrupted status file"
+        }
+
+
+# -----------------------
+# MODELS
+# -----------------------
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    models = get_available_models()
-    print(models)
-    return jsonify(models)
+    return jsonify(get_available_models())
+
+
+# -----------------------
+# STATUS
+# -----------------------
+@app.route('/api/check-progress/<paper_id>', methods=['GET'])
+def check_progress(paper_id):
+    return jsonify(read_status(paper_id))
+
 
 @app.route('/api/check-paper/<paper_id>', methods=['GET'])
 def check_paper(paper_id):
     paper_dir = os.path.join(PAPERS_DIR, paper_id)
     md_path = os.path.join(paper_dir, f"{paper_id}.md")
     pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
-    
-    exists = os.path.exists(md_path) and os.path.exists(pdf_path)
-    
+
     return jsonify({
-        'exists': exists,
-        'markdownPath': md_path if exists else None,
-        'pdfPath': pdf_path if exists else None
+        "exists": os.path.exists(md_path) and os.path.exists(pdf_path),
+        "markdownPath": md_path,
+        "pdfPath": pdf_path
     })
 
+
+# -----------------------
+# PAPER FETCH
+# -----------------------
 @app.route('/api/paper/<paper_id>', methods=['GET'])
-def get_paper(paper_id):    
-    paper_dir = os.path.join(PAPERS_DIR, paper_id)
-    md_path = os.path.join(paper_dir, f"{paper_id}.md")
-    
-    if not os.path.exists(md_path):
-        return jsonify({'error': 'Paper not found'}), 404
-    
+def get_paper(paper_id):
     try:
-        with open(md_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-        
-        summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
-        if os.path.exists(summary_path):
-            with open(summary_path, 'r', encoding='utf-8') as f:
-                summary = f.read()
-        else:
-            try:
-                summary = summarize(markdown_content)
-                with open(summary_path, 'w', encoding='utf-8') as f:
-                    f.write(summary)
-            except Exception as e:
-                print(f"Error generating summary: {e}")
-                summary = "Error generating summary. Please try again later."
-        
+        content, summary = paper_service.get_paper_with_summary(
+            paper_id,
+            summary_service
+        )
+
         return jsonify({
-            'success': True,
-            'content': markdown_content,
-            'summary': summary
+            "success": True,
+            "content": content,
+            "summary": summary
         })
-        
+
+    except FileNotFoundError:
+        return jsonify({"error": "Paper not found"}), 404
+
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception(e)
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/check-progress/<paper_id>', methods=['GET'])
-def check_progress(paper_id):
-    paper_dir = os.path.join(PAPERS_DIR, paper_id)
-    md_path = os.path.join(paper_dir, f"{paper_id}.md")
-    summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
-    
-    if os.path.exists(md_path) and os.path.exists(summary_path):
-        return jsonify({
-            'complete': True,
-            'message': 'Processing complete'
-        })
-    elif os.path.exists(md_path):
-        return jsonify({
-            'complete': False,
-            'progress': 0.8,
-            'message': 'PDF converted, generating summary...'
-        })
-    else:
-        return jsonify({
-            'complete': False,
-            'progress': 0.5,
-            'message': 'Processing in progress...'
-        })
 
+# -----------------------
+# PROCESS PDF
+# -----------------------
 @app.route('/api/process-pdf', methods=['POST'])
 def process_pdf():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    
-    file = request.files['file']
-    paper_id = request.form.get('paperId')
-    model_id = request.form.get('modelId')
-    
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    if not paper_id:
-        return jsonify({'error': 'No paper ID provided'}), 400
-    
-    if file:
+    try:
+        file = request.files.get("file")
+        paper_id = request.form.get("paperId")
+
+        if not file or not paper_id:
+            return jsonify({"error": "Missing file or paperId"}), 400
+
+        paper_dir = os.path.join(PAPERS_DIR, paper_id)
+        md_path = os.path.join(paper_dir, f"{paper_id}.md")
+        pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
+
+        # ✅ STEP 1: If already fully processed → SKIP EVERYTHING
+        if os.path.exists(md_path) and os.path.exists(pdf_path):
+            return jsonify({
+                "success": True,
+                "skipped": True,
+                "message": "Paper already processed",
+                "paperId": paper_id
+            }), 200
+
+        # otherwise continue processing
+        write_status(paper_id, "processing", 0.1, "upload received")
+
         temp_dir = tempfile.gettempdir()
-        temp_filename = f"{uuid.uuid4().hex}_{file.filename}"
-        file_path = os.path.join(temp_dir, temp_filename)
+        file_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}_{file.filename}")
         file.save(file_path)
 
-        def process_thread():
+        def worker():
             try:
-                paper_dir = create_paper_directory(paper_id)
-                
-                pdf_path = os.path.join(paper_dir, f"{paper_id}.pdf")
-                shutil.copy(file_path, pdf_path)
-                
-                success = convert_pdf_to_markdown(file_path, paper_id)
-                
-                if not success:
-                    print(f"Failed to convert PDF for {paper_id}")
-                    return
-                
-                markdown_path = os.path.join(paper_dir, f"{paper_id}.md")
-                
-                with open(markdown_path, 'r', encoding='utf-8') as f:
-                    markdown_content = f.read()
-                
-                summary = summarize(markdown_content, model_id)
-                
-                summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
-                with open(summary_path, 'w', encoding='utf-8') as f:
-                    f.write(summary)
-                
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    
-                print(f"Successfully processed {paper_id}")
-                
+                write_status(paper_id, "processing", 0.3, "parsing PDF")
+
+                paper_service.process_pdf(file_path, paper_id)
+
+                write_status(paper_id, "complete", 1.0, "done")
+
+                logger.info(f"[{paper_id}] processing complete")
+
             except Exception as e:
-                import traceback
-                traceback.print_exc()
-                print(f"Error processing PDF: {str(e)}")
+                logger.exception(f"[{paper_id}] worker failed")
+                write_status(paper_id, "failed", 0.0, str(e))
+
+            finally:
                 if os.path.exists(file_path):
                     os.remove(file_path)
-        
-        threading.Thread(target=process_thread).start()
-        
-        return jsonify({
-            'success': True,
-            'message': 'PDF processing started',
-            'paperId': paper_id
-        })
-        
-    return jsonify({'error': 'Unknown error'}), 500
 
-@app.route('/api/regenerate-summary/<paper_id>', methods=['POST'])
-def regenerate_summary(paper_id):
-    model_id = request.json.get('modelId')
-    paper_dir = os.path.join(PAPERS_DIR, paper_id)
-    md_path = os.path.join(paper_dir, f"{paper_id}.md")
-    
-    if not os.path.exists(md_path):
-        return jsonify({'error': 'Paper not found'}), 404
-    
-    try:
-        with open(md_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-        
-        new_summary = summarize(markdown_content, model_id)
-        
-        summary_path = os.path.join(paper_dir, f"{paper_id}_summary.txt")
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(new_summary)
-        
+        threading.Thread(target=worker, daemon=True).start()
+
         return jsonify({
-            'success': True,
-            'summary': new_summary
-        })
-        
+            "success": True,
+            "skipped": False,
+            "message": "Processing started",
+            "paperId": paper_id
+        }), 200
+
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        logger.exception(e)
+        return jsonify({"error": str(e)}), 500
 
+
+# -----------------------
+# CHAT
+# -----------------------
 @app.route('/api/chat', methods=['POST'])
 def chat_endpoint():
     try:
-        data = request.json
-        query = data.get('query')
-        paper_id = data.get('paperId')
-        model_id = data.get('modelId')
-        
-        if not query or not paper_id:
-            return jsonify({
-                'error': 'Missing required parameters',
-                'details': 'Both query and paperId are required'
-            }), 400
-        
-        response, _ = chat(query, paper_id, model_id)
-        return jsonify({
-            'success': True,
-            'response': response
-        })
-    except FileNotFoundError as e:
-        return jsonify({
-            'error': 'Paper not found',
-            'details': str(e)
-        }), 404
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'error': 'Internal server error',
-            'details': str(e)
-        }), 500
+        data = request.json or {}
 
+        query = data.get("query")
+        paper_id = data.get("paperId")
+        model_id = data.get("modelId", "gpt-4o-mini")  # default
+
+        if not query or not paper_id:
+            return jsonify({"error": "Missing query or paperId"}), 400
+
+        status = read_status(paper_id)
+
+        if status["status"] != "complete":
+            return jsonify({
+                "error": "Paper not ready",
+                "status": status
+            }), 409
+
+        # 🔥 NEW: route model config
+        model_config = get_model_config(model_id)
+
+        result = chat_service.chat(
+            query=query,
+            paper_id=paper_id,
+            model_config=model_config   # 👈 pass full config
+        )
+
+        return jsonify({
+            "success": True,
+            "response": result["response"],
+            "model_used": model_id
+        })
+
+    except Exception as e:
+        logger.exception(e)
+        return jsonify({"error": str(e)}), 500
+
+
+# -----------------------
+# FILES
+# -----------------------
 @app.route('/api/pdf/<paper_id>', methods=['GET'])
 def serve_pdf(paper_id):
-    pdf_path = os.path.join(PAPERS_DIR, paper_id, f"{paper_id}.pdf")
-    
-    if not os.path.exists(pdf_path):
-        return jsonify({'error': 'PDF not found'}), 404
-    
-    return send_file(pdf_path, mimetype='application/pdf')
+    path = os.path.join(PAPERS_DIR, paper_id, f"{paper_id}.pdf")
+
+    if not os.path.exists(path):
+        return jsonify({"error": "PDF not found"}), 404
+
+    return send_file(path, mimetype="application/pdf", as_attachment=False, download_name=f"{paper_id}.pdf")
+
 
 @app.route('/api/markdown/<path:filepath>', methods=['GET'])
 def serve_markdown(filepath):
     return send_from_directory(PAPERS_DIR, filepath)
 
-if __name__ == '__main__':
+@app.route('/api/regenerate-summary', methods=['POST'])
+def regenerate_summary():
+    try:
+        data = request.json or {}
+
+        paper_id = data.get("paperId")
+        model_id = data.get("modelId")
+
+        if not paper_id:
+            return jsonify({"error": "Missing paperId"}), 400
+
+        # load content
+        content, _ = paper_service.get_paper_with_summary(
+            paper_id,
+            summary_service
+        )
+
+        # 🔥 ALWAYS recompute
+        summary = summary_service.summarize(
+            markdown_content=content,
+            model_id=model_id
+        )
+
+        return jsonify({
+            "success": True,
+            "summary": summary,
+            "model_used": model_id,
+            "regenerated": True
+        })
+
+    except Exception as e:
+        logger.exception(e)
+        return jsonify({"error": str(e)}), 500
+    
+if __name__ == "__main__":
     app.run(debug=True, port=8000)

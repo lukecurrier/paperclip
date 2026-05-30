@@ -38,7 +38,7 @@ const Assistant = () => {
   const [userMessage, setUserMessage] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
   const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('llama-3.1-8b'); // Default model
+  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini');
 
   useEffect(() => {
     const savedModel = localStorage.getItem('selectedModel');
@@ -65,8 +65,8 @@ const Assistant = () => {
               const data = await response.json();
               setPaperContent(data.content || '');
               setSummary(data.summary || '');
-              setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}`);
-              setCurrentTab('discuss');
+              setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
+              setCurrentTab('summary');
             }
           } catch (error) {
             console.error('Error fetching paper data:', error);
@@ -113,38 +113,36 @@ const Assistant = () => {
 
   const regenerateSummary = async () => {
     if (!paperId) return;
-    
+
     setIsRegeneratingSummary(true);
-    
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/regenerate-summary/${paperId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/regenerate-summary`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          modelId: selectedModel
+          paperId,
+          modelId: selectedModel,
         }),
       });
-      
+
       if (!response.ok) {
         throw new Error(`Failed to regenerate summary: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
-      if (data.success) {
-        setSummary(data.summary);
-      } else {
-        alert(`Error: ${data.error || 'Failed to regenerate summary'}`);
-      }
-    } catch (error) {
-      console.error('Error regenerating summary:', error);
-      alert('Failed to regenerate summary. Please try again.');
+
+      // update UI with new summary
+      setSummary(data.summary);
+
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsRegeneratingSummary(false);
     }
-  };
+};
 
   const processPaper = async () => {
     if (!file || !paperId) return;
@@ -173,7 +171,7 @@ const Assistant = () => {
         const data = await response.json();
         setPaperContent(data.content);
         setSummary(data.summary);
-        setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}`);
+        setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
         
         setProcessingProgress(0.9);
         setProcessingMessage('Preparing interface...');
@@ -185,135 +183,92 @@ const Assistant = () => {
         }, 500);
       } else {
         // Paper doesn't exist, process it
-        // Create form data for file upload
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('paperId', paperId);
-        formData.append('modelId', selectedModel); // Add the selected model ID
-        
-        // Call the backend API to process the PDF
-        const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (!data.success) {
-          throw new Error(data.error || 'Unknown error processing PDF');
-        }
-        
-        const loadingStages = [
-          { progress: 0.05, message: 'Uploading PDF...', time: 1000 },
-          { progress: 0.1, message: 'Loading layout model...', time: 2000 },
-          { progress: 0.2, message: 'Loading recognition models...', time: 3000 },
-          { progress: 0.3, message: 'Starting PDF conversion...', time: 1000 },
-          { progress: 0.4, message: 'Recognizing layout...', time: 4000 },
-          { progress: 0.5, message: 'Running OCR error detection...', time: 2000 },
-          { progress: 0.6, message: 'Detecting text boundaries...', time: 2000 },
-          { progress: 0.7, message: 'Recognizing text (this may take a while)...', time: 8000 },
-          { progress: 0.8, message: 'Recognizing text (this may take a while)...', time: 8000 },
-          { progress: 0.9, message: 'Recognizing text (this may take a while)...', time: 8000 },
-          { progress: 0.95, message: 'Finishing up...', time: 500 }
-        ];
-        
-        let checkProgressTimer: NodeJS.Timeout | null = null;
-        let finalStageReached = false;
-        
-        const checkRealProgress = async () => {
-          try {
-            const response = await fetch(`${API_BASE_URL}/api/check-progress/${paperId}`);
-            if (response.ok) {
-              const data = await response.json();
-              
-              if (data.complete) {
-                if (checkProgressTimer) {
-                  clearInterval(checkProgressTimer);
-                }
-                finalStageReached = true;
-                
-                setProcessingProgress(0.95);
-                setProcessingMessage('Processing complete, loading results...');
-                
-                // Short delay to show the completion message
-                setTimeout(async () => {
-                  try {
-                    const paperResponse = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
-                    if (paperResponse.ok) {
-                      const paperData = await paperResponse.json();
-                      setPaperContent(paperData.content || '');
-                      setSummary(paperData.summary || '');
-                      setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}`);
-                      
-                      setProcessingProgress(1);
-                      setProcessingMessage('Paper ready!');
-                      
-                      setTimeout(() => {
-                        setCurrentTab('summary');
-                        setIsProcessing(false);
-                      }, 1000);
-                    } else {
-                      throw new Error('Failed to load paper data');
-                    }
-                  } catch (error) {
-                    console.error('Error loading paper data:', error);
-                    setIsProcessing(false);
-                    setProcessingProgress(0);
-                    alert('Error loading paper data. Please try again.');
-                  }
-                }, 1000);
-              } else if (data.progress) {
-                // Update progress with real data from backend
-                setProcessingProgress(data.progress);
-                setProcessingMessage(data.message);
-              }
-            }
-          } catch (error) {
-            console.error('Error checking progress:', error);
-            // Don't stop the timer on error, just try again
-          }
-        };
-        
-        // Simulate progress through each stage, then start checking real progress
-        for (let i = 1; i < loadingStages.length; i++) {
-          const stage = loadingStages[i];
-          
-          await new Promise(resolve => {
-            setTimeout(() => {
-              // Only update if we haven't reached the final stage yet
-              if (!finalStageReached) {
-                setProcessingProgress(stage.progress);
-                setProcessingMessage(stage.message);
-              }
-              resolve(null);
-            }, loadingStages[i - 1].time);
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('paperId', paperId);
+          formData.append('modelId', selectedModel);
+
+          setProcessingProgress(0.05);
+          setProcessingMessage("Uploading PDF...");
+
+          const response = await fetch(`${API_BASE_URL}/api/process-pdf`, {
+            method: 'POST',
+            body: formData,
           });
-        }
-        
-        // After simulated stages, start checking real progress
-        if (!finalStageReached) {
-          setProcessingProgress(0.7);
-          setProcessingMessage('Continuing processing...');
-          
-          // Check real progress every 2 seconds
-          checkProgressTimer = setInterval(checkRealProgress, 2000) as NodeJS.Timeout;
-          
-          // Set a maximum time limit (3 minutes)
-          setTimeout(() => {
-            if (checkProgressTimer) {
-              clearInterval(checkProgressTimer);
-              if (!finalStageReached) {
-                setIsProcessing(false);
-                setProcessingProgress(0);
-                alert('Processing is taking longer than expected. The paper may still be processing in the background. Please check again later.');
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (!data.success) {
+            throw new Error(data.error || 'Unknown error processing PDF');
+          }
+
+          // ---------------------------
+          // REAL BACKEND POLLING ONLY
+          // ---------------------------
+
+          let pollInterval: NodeJS.Timeout | null = null;
+          let isDone = false;
+
+          const pollStatus = async () => {
+            try {
+              const res = await fetch(`${API_BASE_URL}/api/check-progress/${paperId}`);
+
+              if (!res.ok) return;
+
+              const status = await res.json();
+
+              setProcessingProgress(status.progress ?? 0);
+              setProcessingMessage(status.message ?? "Processing...");
+
+              if (status.status === "complete") {
+                isDone = true;
+
+                if (pollInterval) clearInterval(pollInterval);
+
+                setProcessingProgress(1);
+                setProcessingMessage("Loading paper...");
+
+                const paperRes = await fetch(`${API_BASE_URL}/api/paper/${paperId}`);
+                const paperData = await paperRes.json();
+
+                setPaperContent(paperData.content || '');
+                setSummary(paperData.summary || '');
+                setPdfUrl(`${API_BASE_URL}/api/pdf/${paperId}?t=${Date.now()}`);
+
+                setTimeout(() => {
+                  setCurrentTab('summary');
+                  setIsProcessing(false);
+                }, 500);
               }
+
+              if (status.status === "failed") {
+                if (pollInterval) clearInterval(pollInterval);
+
+                setIsProcessing(false);
+                setProcessingMessage(status.message || "Failed");
+                alert("Processing failed. Please try again.");
+              }
+
+            } catch (err) {
+              console.error("Polling error:", err);
             }
-          }, 180000); // 3 minutes
-        }
+          };
+
+          // start polling immediately
+          pollInterval = setInterval(pollStatus, 2000);
+
+          // optional safety timeout
+          setTimeout(() => {
+            if (!isDone && pollInterval) {
+              clearInterval(pollInterval);
+              setIsProcessing(false);
+              alert("Processing is taking too long. Please try again later.");
+            }
+          }, 180000);
       }
     } catch (error) {
       console.error('Error processing PDF:', error);
@@ -584,9 +539,9 @@ const Assistant = () => {
                 {/* PDF Viewer */}
                 <div className="w-3/5 border rounded-lg overflow-hidden">
                   {pdfUrl ? (
-                    <iframe 
-                      src={pdfUrl} 
-                      className="w-full h-full" 
+                    <iframe
+                      src={`${pdfUrl}#toolbar=0&view=FitH`}
+                      className="w-full h-full"
                       title="Paper PDF"
                     />
                   ) : (
