@@ -5,7 +5,6 @@ import re
 import json
 import logging
 import numpy as np
-
 class PaperService:
 
     BASE_DIR = Path(__file__).parent.parent / "papers"

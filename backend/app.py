@@ -132,8 +132,7 @@ def process_pdf():
 
         os.makedirs(paper_dir, exist_ok=True)
 
-        # otherwise continue processing
-        write_status(paper_id, "processing", 0.1, "upload received")
+        write_status(paper_id, "processing", 0.3, "upload received")
 
         temp_dir = tempfile.gettempdir()
         file_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}_{file.filename}")
@@ -141,7 +140,7 @@ def process_pdf():
 
         def worker():
             try:
-                write_status(paper_id, "processing", 0.3, "parsing PDF")
+                write_status(paper_id, "processing", 0.4, "parsing PDF")
 
                 paper_service.process_pdf(file_path, paper_id)
 

@@ -61,7 +61,7 @@ def load_local_model(path):
 def run_local(model, tokenizer, text):
     model.eval()
 
-    MAX_LEN = min(1024, getattr(model.config, "n_positions", 1024))
+    MAX_LEN = min(512, model.config.max_position_embeddings)
 
     inputs = tokenizer(
         text,
@@ -70,23 +70,18 @@ def run_local(model, tokenizer, text):
         max_length=MAX_LEN
     )
 
-    input_ids = inputs["input_ids"]
-    attention_mask = inputs["attention_mask"]
-
-    input_ids = input_ids[:, -MAX_LEN:]
-    attention_mask = attention_mask[:, -MAX_LEN:]
-
-    input_ids = input_ids.to(model.device)
-    attention_mask = attention_mask.to(model.device)
+    input_ids = inputs["input_ids"].to(model.device)
+    attention_mask = inputs["attention_mask"].to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            max_new_tokens=150,
+            max_new_tokens=128,
             do_sample=True,
             temperature=0.7,
             pad_token_id=tokenizer.eos_token_id,
+            use_cache=True
         )
 
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
