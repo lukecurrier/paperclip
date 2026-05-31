@@ -177,7 +177,8 @@ def chat_endpoint():
 
         query = data.get("query")
         paper_id = data.get("paperId")
-        model_id = data.get("modelId", "gpt-4o-mini")  # default
+        model_id = data.get("modelId", "gpt-4o-mini")
+        history = data.get("history", [])
 
         if not query or not paper_id:
             return jsonify({"error": "Missing query or paperId"}), 400
@@ -193,6 +194,7 @@ def chat_endpoint():
         result = chat_service.chat(
             query=query,
             paper_id=paper_id,
+            history=history,
             model_id=model_id
         )
 

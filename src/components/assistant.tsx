@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { UploadCloud, BookOpen, MessageSquare, FileText, BookOpenCheck } from 'lucide-react';
 import SimpleModelSelector from './simplemodelselector'; 
 import { useRef } from 'react';
+import ReactMarkdown from "react-markdown";
 
 const API_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -227,10 +228,17 @@ const handleSendMessage = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        query: currentMessage,
-        paperId: paperId,
-        modelId: selectedModel
-      }),
+      query: currentMessage,
+      paperId: paperId,
+      modelId: selectedModel,
+
+      history: messages
+        .slice(-5)
+        .map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+    }),
     });
 
     const data = await response.json();
@@ -474,14 +482,16 @@ const handleSendMessage = async () => {
                     ) : (
                       messages.map((msg, i) => (
                         <div ref={chatEndRef} key={i} className={`${msg.sender === 'user' ? 'ml-auto' : 'mr-auto'} max-w-[85%]`}>
-                          <div 
-                            className={`p-3 rounded-lg ${
-                              msg.sender === 'user' 
+                          <div
+                            className={`p-3 rounded-lg whitespace-pre-wrap ${
+                              msg.sender === 'user'
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-gray-100 text-gray-800'
                             }`}
                           >
-                            {msg.content}
+                            <ReactMarkdown>
+                              {msg.content}
+                            </ReactMarkdown>
                           </div>
                         </div>
                       ))

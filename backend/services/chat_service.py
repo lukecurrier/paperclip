@@ -12,8 +12,9 @@ class ChatService:
         self.paper_service = PaperService()
         self.embedding_fn = embedding_fn
 
-    def chat(self, query, paper_id, model_id=None):
+    def chat(self, query, paper_id, history=None, model_id=None):
         try:
+            history = history or []
             client = ModelClientFactory.get_client(model_id)
             chunks = self.paper_service.load_chunks(paper_id)
             embeddings = self.paper_service.load_embeddings(paper_id)
@@ -21,8 +22,29 @@ class ChatService:
                 raise ValueError("Missing chunks or embeddings")
             if len(chunks) == 0 or len(embeddings) == 0:
                 raise ValueError("Empty chunks or embeddings")
-            context = self.retrieve(query, chunks, embeddings)
-            prompt = self.build_prompt(query, context)
+            history_text = "\n".join(
+                f"{m['role']}: {m['content']}"
+                for m in history[-5:]
+            )
+
+            retrieval_query = f"""
+            Conversation:
+            {history_text}
+
+            Current Question:
+            {query}
+            """
+
+            context = self.retrieve(
+                retrieval_query,
+                chunks,
+                embeddings
+            )
+            prompt = self.build_prompt(
+                query=query,
+                context=context,
+                history=history
+            )
             response = client.generate_chat_response(prompt)
             return {
                 "response": response,
@@ -59,15 +81,20 @@ class ChatService:
 
         return "\n\n---\n\n".join(filtered)
 
-    def build_prompt(self, query, context):
+    def build_prompt(self, query, context, history):
+        history_text = "\n".join(
+            f"{msg['role'].upper()}: {msg['content']}"
+            for msg in history[-5:]
+        )
         return f"""
 You are PaperClip, an expert research assistant.
 
 Your job:
 - Use ONLY the provided context.
-- If the answer is partially in context, you MUST still answer.
-- If the context is weak, infer reasonable explanations from it.
-- Do NOT say "not enough information" unless context is completely unrelated.
+- Use chat history to understand follow-up questions.
+- If the answer is partially in context, still answer.
+- Be concise and direct.
+- Keep answers under 100 words.
 
 ---
 
@@ -76,13 +103,13 @@ CONTEXT:
 
 ---
 
-QUESTION:
-{query}
+CHAT HISTORY:
+{history_text}
 
 ---
 
-INSTRUCTIONS:
-Explain clearly, simply, and directly.
+CURRENT QUESTION:
+{query}
 
 ---
 
